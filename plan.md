@@ -11,6 +11,7 @@ Team: 3 SWEs.
 ## Demo story (what we're building toward)
 
 3 laptops side-by-side on stage:
+
 - **Laptop A** (small, e.g. Air) — advertises a 3B model, starts with 0 credits.
 - **Laptop B** — asks A to run the 3B model several times. A earns credits.
 - **Laptop C** — advertises a 21B model. A (now flush with credits) spends them to ask C a hard question. Credits visibly deducted.
@@ -40,11 +41,13 @@ Judges see: peer list populate, prompts stream, balances tick live on all three 
 ## Protocol (JSON lines over Hyperswarm duplex stream)
 
 Handshake (on connect, both directions):
+
 ```
 {"t":"hello","peerId":"<pubkey>","models":[{"name":"llama3.2:3b","tier":1},{"name":"qwen:14b","tier":3}]}
 ```
 
 Inference:
+
 ```
 client → {"t":"infer","id":"r1","model":"qwen:14b","prompt":"...","maxTokens":512}
 server → {"t":"token","id":"r1","delta":"Hello"}
@@ -65,10 +68,8 @@ Errors: `{"t":"err","id":"r1","code":"model_not_loaded"}`. Client does not deduc
   protocol.js              # JSON-line framing, request/response
   ollama.js                # thin fetch wrapper around localhost:11434
   ledger.js                # load/save balance + append to log
-/ui/
-  index.html
-  app.js                   # renderer: peer list, chat, balance
-  styles.css
+/ui/                       # use next.js
+
 /config.json               # initial balance, tier pricing, topic name
 ```
 
