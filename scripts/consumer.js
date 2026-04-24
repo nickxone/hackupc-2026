@@ -6,18 +6,23 @@ import {
 } from "../src/core/qvac.js";
 import { config } from "../src/config.js";
 
-const topic = process.argv[2];
-const providerPublicKey = process.argv[3];
-const prompt = process.argv[4] || "Say hello in exactly 5 words.";
+const providerPublicKey = process.argv[2];
+const prompt = process.argv[3] || "Say hello in exactly 5 words.";
+const topic = process.env.QVAC_TOPIC || config.qvacTopic;
 
-if (!topic || !providerPublicKey) {
+if (!providerPublicKey) {
   console.error(
-    "Usage: node scripts/consumer.js <topic-hex> <provider-public-key> [prompt]",
+    "Usage: node scripts/consumer.js <provider-public-key> [prompt]",
+  );
+  console.error(
+    "       (topic defaults to config.qvacTopic; override with QVAC_TOPIC=<hex>)",
   );
   process.exit(1);
 }
 
-console.log(`Consumer → topic ${topic.slice(0, 12)}..., provider ${providerPublicKey.slice(0, 12)}...`);
+console.log(
+  `Consumer → topic ${topic.slice(0, 12)}..., provider ${providerPublicKey.slice(0, 12)}...`,
+);
 
 const modelId = await loadDelegatedModel({
   modelSrc: config.defaultModel.src,

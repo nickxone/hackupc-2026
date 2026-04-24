@@ -1,12 +1,16 @@
 import { startProvider, stopProvider, shutdown } from "../src/core/qvac.js";
 import { config } from "../src/config.js";
 
-const topic = process.argv[2] || config.qvacTopic;
+const topic = process.env.QVAC_TOPIC || process.argv[2] || config.qvacTopic;
 
 console.log(`Starting provider on topic ${topic.slice(0, 12)}...`);
 const { publicKey } = await startProvider({ topic });
 
 console.log(`PROVIDER_PUBLIC_KEY=${publicKey}`);
+console.log("");
+console.log("On the other machine, run:");
+console.log(`  node scripts/consumer.js ${publicKey}`);
+console.log("");
 console.log(`Provider ready. Press Ctrl+C to stop.`);
 
 const cleanup = async () => {
