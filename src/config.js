@@ -1,10 +1,12 @@
+import { createHash } from "node:crypto";
 import { LLAMA_3_2_1B_INST_Q4_0 } from "@qvac/sdk";
 
+const topicFromName = (name) =>
+  createHash("sha256").update(name).digest("hex");
+
 export const config = {
-  qvacTopic:
-    "636f6d707574652d65786368616e67652d7631636f6d707574652d65786368",
-  discoveryTopic:
-    "636f6d707574652d65786368616e67652d646973636f766572792d76310000",
+  qvacTopic: topicFromName("compute-exchange-qvac-v1"),
+  discoveryTopic: topicFromName("compute-exchange-discovery-v1"),
 
   defaultModel: {
     src: LLAMA_3_2_1B_INST_Q4_0,

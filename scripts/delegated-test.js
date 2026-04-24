@@ -1,48 +1,74 @@
-import {
-  startProvider,
-  stopProvider,
-  loadDelegatedModel,
-  runCompletion,
-  unload,
-  shutdown,
-} from "../src/core/qvac.js";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { config } from "../src/config.js";
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const providerScript = join(__dirname, "provider.js");
+const consumerScript = join(__dirname, "consumer.js");
+
 const topic = config.qvacTopic;
+const PROVIDER_READY_TIMEOUT_MS = 30_000;
 
-console.log(`Starting provider on topic ${topic.slice(0, 12)}...`);
-const { publicKey } = await startProvider({ topic });
-console.log(`Provider public key: ${publicKey}`);
-
-console.log(`Loading delegated model (same process, via Hyperswarm)...`);
-const modelId = await loadDelegatedModel({
-  modelSrc: config.defaultModel.src,
-  topic,
-  providerPublicKey: publicKey,
-  timeoutMs: config.requestTimeoutMs,
-  onProgress: (p) => {
-    process.stdout.write(`\r  download: ${p.percentage.toFixed(1)}%   `);
-  },
-});
-process.stdout.write("\n");
-console.log(`Delegated model loaded: ${modelId}`);
-
-const response = runCompletion({
-  modelId,
-  history: [
-    { role: "user", content: "Say hello in exactly 5 words." },
-  ],
-});
-
-process.stdout.write("Response: ");
-for await (const token of response.tokenStream) {
-  process.stdout.write(token);
+function spawnProvider() {
+  const child = spawn("node", [providerScript, topic], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  child.stderr.on("data", (c) => process.stderr.write(c));
+  return child;
 }
-process.stdout.write("\n");
 
-const stats = await response.stats;
-console.log("Stats:", stats);
+function waitForPublicKey(child) {
+  return new Promise((resolve, reject) => {
+    let buf = "";
+    const timer = setTimeout(() => {
+      reject(new Error("provider did not emit public key in time"));
+    }, PROVIDER_READY_TIMEOUT_MS);
 
-await unload({ modelId });
-await stopProvider({ topic });
-await shutdown();
+    child.stdout.on("data", (chunk) => {
+      const s = chunk.toString();
+      buf += s;
+      process.stdout.write(s);
+      const m = buf.match(/PROVIDER_PUBLIC_KEY=([a-f0-9]+)/i);
+      if (m) {
+        clearTimeout(timer);
+        resolve(m[1]);
+      }
+    });
+
+    child.on("error", (e) => { clearTimeout(timer); reject(e); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      reject(new Error(`provider exited early (code ${code})`));
+    });
+  });
+}
+
+function runConsumer(topic, pubkey) {
+  return new Promise((resolve, reject) => {
+    const child = spawn("node", [consumerScript, topic, pubkey], {
+      stdio: "inherit",
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`consumer exited with code ${code}`));
+    });
+  });
+}
+
+const provider = spawnProvider();
+
+try {
+  console.log("Waiting for provider to announce pubkey...\n");
+  const pubkey = await waitForPublicKey(provider);
+  console.log(`\nProvider pubkey captured: ${pubkey.slice(0, 12)}...`);
+  console.log("Running consumer in a separate process...\n");
+  await runConsumer(topic, pubkey);
+  console.log("\nDelegated inference test: PASS");
+} catch (err) {
+  console.error("\nDelegated inference test: FAIL —", err.message);
+  process.exitCode = 1;
+} finally {
+  if (!provider.killed) provider.kill("SIGTERM");
+}
