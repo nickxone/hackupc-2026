@@ -71,3 +71,21 @@ tmbootpicker.efi
 
 # Built Visual Studio Code Extensions
 *.vsix
+
+# Node
+node_modules/
+npm-debug.log
+*.log
+
+# QVAC / Hyperswarm local state
+.qvac/
+corestore/
+.corestore/
+storage/
+
+# Local ledger state (per-peer, not shared)
+data/
+*.ledger.json
+
+# Reference docs (large file pasted for context, not source)
+llms-full.txt

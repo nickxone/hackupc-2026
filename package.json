@@ -1,0 +1,17 @@
+{
+  "name": "compute-exchange",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "P2P LLM compute exchange — HackUPC 2026",
+  "scripts": {
+    "local": "node scripts/local-test.js",
+    "delegated": "node scripts/delegated-test.js"
+  },
+  "dependencies": {
+    "@qvac/sdk": "^0.9.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
