@@ -1,4 +1,5 @@
-import { createHash } from "node:crypto";
+import crypto from "crypto";
+const { createHash } = crypto;
 import {
   LLAMA_3_2_1B_INST_Q4_0,
   QWEN3_1_7B_INST_Q4,

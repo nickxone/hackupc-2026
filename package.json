@@ -27,5 +27,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "pear": "^2.0.1"
   }
 }
