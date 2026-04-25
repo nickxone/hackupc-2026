@@ -217,19 +217,44 @@ export function renderRateResult({ accepted, provider, score, error, p2p }) {
   ].join("\n");
 }
 
-export function renderAskResult({ prompt, model, content, error }) {
+export function renderAskResult({ prompt, model, content, provider, error }) {
   const lines = [
-    renderTitle("Ask"),
-    "",
-    `Status: ${error ? "blocked" : "ready"}`,
-    `Model: ${model ?? "default"}`,
-    "",
+    `${renderAskHeader({ model, status: error ? "blocked" : "ready" })}${
+      error ? error : content || "(empty response)"
+    }`,
   ];
 
-  if (error) {
-    lines.push(error);
-  } else {
-    lines.push(content || "(empty response)");
+  const details = renderAskDetails({ prompt, provider });
+  if (details) lines.push(details);
+
+  return lines.join("\n");
+}
+
+export function renderAskHeader({ model, status = "ready" }) {
+  return `${[
+    renderTitle("Ask"),
+    "",
+    `Status: ${statusLabels[status] ?? status}`,
+    `Model: ${model ?? "default"}`,
+  ].join("\n")}\n\n`;
+}
+
+export function renderAskDetails({ prompt, provider }) {
+  const lines = [];
+
+  if (provider) {
+    lines.push("", "Provider:");
+    lines.push(`  machine: ${provider.peerName ?? "unknown"}`);
+    lines.push(`  peer id: ${provider.peerId ?? "unknown"}`);
+    lines.push(`  qvac key: ${provider.qvacProviderPublicKey ?? "unknown"}`);
+    lines.push(`  qvac topic: ${provider.qvacTopic ?? "unknown"}`);
+    if (provider.rating != null) lines.push(`  rating: ${provider.rating}`);
+    if (provider.lastSeenAt) lines.push(`  last seen: ${formatTime(provider.lastSeenAt)}`);
+
+    const models = provider.models ?? [];
+    if (models.length > 0) {
+      lines.push(`  models: ${models.map(formatProviderModel).join(", ")}`);
+    }
   }
 
   if (prompt) {
@@ -237,6 +262,11 @@ export function renderAskResult({ prompt, model, content, error }) {
   }
 
   return lines.join("\n");
+}
+
+function formatProviderModel(model) {
+  const name = model.key ?? model.id ?? "unknown";
+  return model.tier == null ? name : `${name}(tier ${model.tier})`;
 }
 
 export function renderAskPlan({ prompt, options }) {

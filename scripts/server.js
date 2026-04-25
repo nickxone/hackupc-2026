@@ -96,7 +96,11 @@ const api = await startComputeExchangeApi({
         res.write("data: [DONE]\n\n");
       } else {
         const chunk = {
-          model: model.key, created_at: new Date().toISOString(), message: { role: "assistant", content: "" }, done: true
+          model: model.key,
+          created_at: new Date().toISOString(),
+          message: { role: "assistant", content: "" },
+          done: true,
+          provider: providerInfo(provider),
         };
         res.write(`${JSON.stringify(chunk)}\n`);
       }
@@ -141,3 +145,15 @@ process.on("SIGINT", async () => {
   await discovery.stop();
   process.exit(0);
 });
+
+function providerInfo(provider) {
+  return {
+    peerName: provider.peerName ?? null,
+    peerId: provider.peerId ?? null,
+    qvacProviderPublicKey: provider.qvacProviderPublicKey ?? null,
+    qvacTopic: provider.qvacTopic ?? null,
+    models: provider.models ?? [],
+    rating: provider.rating ?? null,
+    lastSeenAt: provider.lastSeenAt ?? null,
+  };
+}

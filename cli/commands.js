@@ -1,4 +1,6 @@
 import {
+  renderAskDetails,
+  renderAskHeader,
   renderAskResult,
   renderAskPlan,
   renderBalance,
@@ -45,11 +47,9 @@ const commandDefinitions = [
       });
 
       let api;
-      let shutdownQvac = null;
       setupDaemonCleanup({
         getApi: () => api,
         discovery,
-        getShutdown: () => shutdownQvac,
         process,
       });
 
@@ -63,10 +63,12 @@ const commandDefinitions = [
           try {
             const modelKey = body.model || config.defaultModelKey;
             const model = getModel(modelKey);
-            
+
             const peers = discovery.listPeers();
-            const provider = peers.find(p => p.models.some(m => m.key === model.key || m.id === model.id));
-            
+            const provider = peers.find((peer) =>
+              peer.models.some((m) => m.key === model.key || m.id === model.id),
+            );
+
             if (!provider) {
               throw new Error(`No providers found for model "${model.key}"`);
             }
@@ -75,25 +77,26 @@ const commandDefinitions = [
             const {
               loadDelegatedModel,
               runCompletion,
-              shutdown,
               unload,
             } = await import("../src/core/qvac.js");
-            shutdownQvac = shutdown;
 
             const modelId = await loadDelegatedModel({
               modelSrc: model.src,
               topic: provider.qvacTopic,
               providerPublicKey: provider.qvacProviderPublicKey,
-              timeoutMs: config.requestTimeoutMs
+              timeoutMs: config.requestTimeoutMs,
             });
 
-            const history = (body.messages || []).map(m => ({ role: m.role, content: m.content }));
+            const history = (body.messages || []).map((m) => ({
+              role: m.role,
+              content: m.content,
+            }));
             const response = runCompletion({ modelId, history, stream: true });
 
             res.writeHead(200, {
               "Content-Type": isOai ? "text/event-stream" : "application/x-ndjson",
               "Cache-Control": "no-cache",
-              "Connection": "keep-alive"
+              "Connection": "keep-alive",
             });
 
             const id = `chatcmpl-${Math.random().toString(36).slice(2)}`;
@@ -103,13 +106,19 @@ const commandDefinitions = [
               totalTokens++;
               if (isOai) {
                 const chunk = {
-                  id, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: model.key,
-                  choices: [{ index: 0, delta: { content: token }, finish_reason: null }]
+                  id,
+                  object: "chat.completion.chunk",
+                  created: Math.floor(Date.now() / 1000),
+                  model: model.key,
+                  choices: [{ index: 0, delta: { content: token }, finish_reason: null }],
                 };
                 res.write(`data: ${JSON.stringify(chunk)}\n\n`);
               } else {
                 const chunk = {
-                  model: model.key, created_at: new Date().toISOString(), message: { role: "assistant", content: token }, done: false
+                  model: model.key,
+                  created_at: new Date().toISOString(),
+                  message: { role: "assistant", content: token },
+                  done: false,
                 };
                 res.write(`${JSON.stringify(chunk)}\n`);
               }
@@ -117,13 +126,20 @@ const commandDefinitions = [
 
             if (isOai) {
               res.write(`data: ${JSON.stringify({
-                id, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: model.key,
-                choices: [{ index: 0, delta: {}, finish_reason: "stop" }]
+                id,
+                object: "chat.completion.chunk",
+                created: Math.floor(Date.now() / 1000),
+                model: model.key,
+                choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
               })}\n\n`);
               res.write("data: [DONE]\n\n");
             } else {
               const chunk = {
-                model: model.key, created_at: new Date().toISOString(), message: { role: "assistant", content: "" }, done: true
+                model: model.key,
+                created_at: new Date().toISOString(),
+                message: { role: "assistant", content: "" },
+                done: true,
+                provider: providerInfo(provider),
               };
               res.write(`${JSON.stringify(chunk)}\n`);
             }
@@ -134,13 +150,19 @@ const commandDefinitions = [
             const credits = Math.ceil(tokens / 10) * model.tier;
 
             await ledger.spend({
-              to: provider.qvacProviderPublicKey, tokens, credits, model: model.key
+              to: provider.qvacProviderPublicKey,
+              tokens,
+              credits,
+              model: model.key,
             });
 
             await discovery.sendCreditAck({
-              to: provider.qvacProviderPublicKey, tokens, credits, model: model.key
+              to: provider.qvacProviderPublicKey,
+              tokens,
+              credits,
+              model: model.key,
             });
-            
+
             await unload({ modelId });
           } catch (err) {
             if (!res.headersSent) {
@@ -150,7 +172,7 @@ const commandDefinitions = [
               res.end();
             }
           }
-        }
+        },
       });
       return {
         output: renderDaemonStarted(api),
@@ -197,7 +219,20 @@ const commandDefinitions = [
       const { options, prompt } = parseAskArgs(args);
       if (!prompt) return renderAskPlan({ prompt, options });
 
-      const response = await requestJsonLines({
+      const { default: process } = await import("bare-process");
+      const stdout = process.stdout;
+      let content = "";
+      let firstLine = null;
+      let last = null;
+      let streamedHeader = false;
+
+      const streamHeader = (model) => {
+        if (streamedHeader) return;
+        stdout.write(renderAskHeader({ model: model ?? options.model }));
+        streamedHeader = true;
+      };
+
+      const response = await requestJsonLinesStream({
         apiUrl: options.apiUrl,
         method: "POST",
         path: "/api/chat",
@@ -211,19 +246,49 @@ const commandDefinitions = [
             strategy: options.strategy,
           },
         },
+        onLine(line) {
+          firstLine ??= line;
+          last = line;
+
+          if (line.error) return;
+          streamHeader(line.model);
+
+          const chunk = line.message?.content ?? line.response ?? "";
+          if (chunk) {
+            content += chunk;
+            stdout.write(chunk);
+          }
+        },
       });
 
-      const content = response.lines
-        .map((line) => line.message?.content ?? line.response ?? "")
-        .join("");
-      const last = response.lines.at(-1) ?? response.json;
+      last ??= response.lines.at(-1) ?? response.json;
 
-      return renderAskResult({
+      const error = response.ok ? last?.error : response.error;
+      if (error) {
+        if (streamedHeader) stdout.write("\n");
+        return renderAskResult({
+          prompt,
+          model: last?.model ?? firstLine?.model ?? options.model,
+          content,
+          provider: last?.provider,
+          error,
+        });
+      }
+
+      streamHeader(last?.model);
+      if (!content) stdout.write("(empty response)");
+
+      const details = renderAskDetails({
         prompt,
-        model: last?.model ?? options.model,
-        content,
-        error: response.ok ? last?.error : response.error,
+        provider: last?.provider,
       });
+      if (details) stdout.write(`\n${details}`);
+      stdout.write("\n");
+
+      return {
+        output: "",
+        streamed: true,
+      };
     },
   },
   {
@@ -321,6 +386,7 @@ export async function runCommand(argv) {
     output: result.output,
     exitCode: result.exitCode ?? 0,
     keepAlive: result.keepAlive ?? false,
+    streamed: result.streamed ?? false,
   };
 }
 
@@ -511,6 +577,109 @@ async function requestJsonLines({ apiUrl = DEFAULT_API_URL, method = "GET", path
   return { ok: true, lines };
 }
 
+async function requestJsonLinesStream({
+  apiUrl = DEFAULT_API_URL,
+  method = "GET",
+  path,
+  body,
+  onLine,
+}) {
+  const response = await requestStream({
+    apiUrl,
+    method,
+    path,
+    body,
+    onText(text, response, flush = false) {
+      parseJsonLinesChunk({
+        text,
+        path,
+        response,
+        onLine,
+        flush,
+      });
+    },
+  });
+
+  if (response.statusCode >= 400) {
+    const last = response.lines.at(-1);
+    return {
+      ok: false,
+      lines: response.lines,
+      error: last?.error ?? `HTTP ${response.statusCode} from ${path}`,
+    };
+  }
+
+  return { ok: true, lines: response.lines };
+}
+
+async function requestStream({ apiUrl, method, path, body, onText }) {
+  const { default: http } = await import("bare-http1");
+  const url = new URL(path, apiUrl);
+  const payload = body == null ? null : JSON.stringify(body);
+
+  return new Promise((resolve, reject) => {
+    const state = {
+      statusCode: 0,
+      buffer: "",
+      lines: [],
+    };
+    const req = http.request(
+      {
+        method,
+        hostname: url.hostname,
+        host: url.hostname,
+        port: Number(url.port || 80),
+        path: `${url.pathname}${url.search}`,
+        headers: payload
+          ? {
+              "content-type": "application/json",
+              "content-length": String(payload.length),
+            }
+          : undefined,
+      },
+      (res) => {
+        state.statusCode = res.statusCode ?? 0;
+        res.on("data", (chunk) => {
+          try {
+            onText(chunk.toString(), state);
+          } catch (err) {
+            reject(err);
+          }
+        });
+        res.on("end", () => {
+          try {
+            onText("\n", state, true);
+            resolve(state);
+          } catch (err) {
+            reject(err);
+          }
+        });
+      },
+    );
+
+    req.on("error", (err) => {
+      reject(new Error(`Unable to reach daemon at ${apiUrl}: ${err.message}`));
+    });
+
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+function parseJsonLinesChunk({ text, path, response, onLine, flush = false }) {
+  response.buffer += text;
+  const parts = response.buffer.split(/\r?\n/);
+  response.buffer = flush ? "" : parts.pop() ?? "";
+
+  for (const part of parts) {
+    const lineText = part.trim();
+    if (!lineText) continue;
+    const line = parseJson(lineText, path);
+    response.lines.push(line);
+    if (response.statusCode < 400) onLine(line);
+  }
+}
+
 async function requestText({ apiUrl, method, path, body }) {
   const { default: http } = await import("bare-http1");
   const url = new URL(path, apiUrl);
@@ -559,7 +728,19 @@ function parseJson(text, path) {
   }
 }
 
-function setupDaemonCleanup({ getApi, discovery, getShutdown, process }) {
+function providerInfo(provider) {
+  return {
+    peerName: provider.peerName ?? null,
+    peerId: provider.peerId ?? null,
+    qvacProviderPublicKey: provider.qvacProviderPublicKey ?? null,
+    qvacTopic: provider.qvacTopic ?? null,
+    models: provider.models ?? [],
+    rating: provider.rating ?? null,
+    lastSeenAt: provider.lastSeenAt ?? null,
+  };
+}
+
+function setupDaemonCleanup({ getApi, discovery, process }) {
   let cleaningUp = false;
 
   const cleanup = async (signal) => {
@@ -574,10 +755,6 @@ function setupDaemonCleanup({ getApi, discovery, getShutdown, process }) {
     const errors = [];
     await runCleanupStep("HTTP API", () => getApi()?.stop?.(), errors);
     await runCleanupStep("discovery", () => discovery.stop(), errors);
-    const shutdown = getShutdown?.();
-    if (shutdown) {
-      await runCleanupStep("QVAC SDK", () => shutdown(), errors);
-    }
 
     if (errors.length > 0) {
       for (const err of errors) {
