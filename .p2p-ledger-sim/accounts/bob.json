@@ -1,0 +1,7 @@
+{
+  "name": "bob",
+  "accountId": "6bd965df8116392b47a339ec17542daa3984d9aafdd8c43621c3e02d81aee174",
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAk6oWhcxP9tzZARUjSLEtrgXisl5h2X50UW33zerstCU=\n-----END PUBLIC KEY-----\n",
+  "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIC8kDGJb1BsY3gVvh7N01LGLFel8RY4No57jcJoWzpe5\n-----END PRIVATE KEY-----\n",
+  "peerDir": "/home/faruk/VSCode/hackupc_2026/qvac-test/hackupc-2026/.p2p-ledger-sim/peers/bob"
+}

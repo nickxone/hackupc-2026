@@ -1,0 +1,21 @@
+diff --git a/include/LIEF/MachO/FatBinary.hpp b/include/LIEF/MachO/FatBinary.hpp
+index 59afbb7..5223431 100644
+--- a/include/LIEF/MachO/FatBinary.hpp
++++ b/include/LIEF/MachO/FatBinary.hpp
+@@ -50,6 +50,8 @@ class LIEF_API FatBinary {
+   /// Iterator that outputs const Binary&
+   using it_const_binaries = const_ref_iterator<const binaries_t&, Binary*>;
+ 
++  FatBinary(binaries_t binaries);
++
+   FatBinary(const FatBinary&) = delete;
+   FatBinary& operator=(const FatBinary&) = delete;
+ 
+@@ -125,7 +127,6 @@ class LIEF_API FatBinary {
+ 
+   private:
+   LIEF_LOCAL FatBinary();
+-  LIEF_LOCAL FatBinary(binaries_t binaries);
+   binaries_t binaries_;
+ };
+ 
