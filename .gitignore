@@ -2,6 +2,8 @@ node_modules/
 
 .p2p-ledger-demo/
 .p2p-ledger-sim/
+.alice
+.bob
 
 *.log
 .DS_Store
