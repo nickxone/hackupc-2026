@@ -1,0 +1,7 @@
+{
+  "name": "charlie",
+  "accountId": "b167f1e5e245f4b27c7a6c4ae557fcc3331e2d9cc06bc4dc3f13315b58644190",
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAp1wvGg6KcVDCZsguGYBX3ch4sC+c2/8FnFdC2ax1y08=\n-----END PUBLIC KEY-----\n",
+  "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIIg8PmHQwJmK+nHA8Uo4B548ZLTKVrpEW9/1nq4bPDOK\n-----END PRIVATE KEY-----\n",
+  "peerDir": "/home/faruk/VSCode/hackupc_2026/qvac-test/hackupc-2026/.p2p-ledger-sim/peers/charlie"
+}

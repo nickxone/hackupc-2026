@@ -1,20 +1,38 @@
 {
-  "name": "compute-exchange",
-  "version": "0.0.1",
-  "private": true,
-  "type": "module",
-  "description": "P2P LLM compute exchange — HackUPC 2026",
-  "scripts": {
-    "local": "node scripts/local-test.js",
-    "delegated": "node scripts/delegated-test.js",
-    "discovery": "node scripts/discovery-test.js",
-    "peer": "node scripts/discovery-peer.js"
-  },
+  "name": "hackupc-2026",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
   "dependencies": {
-    "@qvac/sdk": "^0.9.1",
-    "hyperswarm": "^4.17.0"
+    "autobase": "^7.27.3",
+    "b4a": "^1.8.0",
+    "bare-runtime": "^1.28.4",
+    "bare-runtime-linux-x64": "^1.28.4",
+    "corestore": "^7.9.2",
+    "hyperbee": "^2.27.3",
+    "hyperdht": "^6.30.0",
+    "hyperswarm": "^4.17.0",
+    "bare-fs": "^4.7.1",
+    "bare-path": "^3.0.0",
+    "bare-crypto": "^1.13.4",
+    "bare-events": "^2.8.2",
+    "bare-os": "^3.9.0"
   },
-  "engines": {
-    "node": ">=20"
-  }
+  "scripts": {
+    "demo:ledger": "node scripts/autobase-ledger-demo.js",
+    "ledger:cli": "node scripts/p2p-ledger-cli.js",
+    "ledger:sim": "node scripts/p2p-ledger-network-sim.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nickxone/hackupc-2026.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/nickxone/hackupc-2026/issues"
+  },
+  "homepage": "https://github.com/nickxone/hackupc-2026#readme"
 }
