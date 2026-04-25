@@ -4,7 +4,13 @@
   "private": true,
   "type": "module",
   "description": "P2P LLM compute exchange — HackUPC 2026",
+  "main": "cli/index.js",
+  "pear": {
+    "name": "compute-exchange"
+  },
   "scripts": {
+    "cli": "node cli/index.js",
+    "pear": "pear run .",
     "local": "node scripts/local-test.js",
     "delegated": "node scripts/delegated-test.js",
     "discovery": "node scripts/discovery-test.js",

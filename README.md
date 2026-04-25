@@ -11,6 +11,21 @@ P2P LLM compute exchange prototype for HackUPC 2026.
 
 - Install dependencies:
   - `npm install`
+- Install/bootstrap Pear if `pear` is not on your `PATH`:
+  - `npm install -g pear`
+  - `pear`
+- Run the Pear CLI shell:
+  - `pear run . help`
+- Show the local Ollama-compatible API contract:
+  - `pear run . daemon`
+- List providers with selection info:
+  - `pear run . peers --wait 5000`
+- Ask with an automatic budget-aware provider pick:
+  - `pear run . ask --max-credits 20 "Explain vector databases"`
+- Ask a specific peer within a budget:
+  - `pear run . ask --peer <peer-id> --max-credits 20 "Explain vector databases"`
+- Run the same CLI through Node during development:
+  - `npm run cli -- help`
 - Run a local model smoke test:
   - `npm run local`
 - Run a provider:
@@ -50,6 +65,23 @@ P2P LLM compute exchange prototype for HackUPC 2026.
   - Creates a starting balance if no ledger exists.
   - Records `earn` and `spend` log entries.
   - Calculates credit price from token count and model tier.
+
+- `cli/index.js`
+  - Pear terminal entrypoint.
+  - Parses CLI arguments and dispatches commands.
+  - Supports both Node-style `process.argv` and Pear/Bare-style `Bare.argv`.
+
+- `cli/commands.js`
+  - Defines `serve`, `ask`, `peers`, `balance`, and `rate`.
+  - Keeps command behavior separate from terminal rendering.
+  - Defines the `daemon` contract for an Ollama-compatible local API.
+  - Defines the `peers` contract for provider selection output.
+  - Parses `ask` filters for peer, model, budget, and provider strategy.
+  - Keeps placeholders for unfinished daemon, provider, prompt, balance, and rating flows.
+
+- `cli/render.js`
+  - Shared terminal output formatting.
+  - Renders usage, peer selection info, command status, planned behavior, and command errors.
 
 - `scripts/local-test.js`
   - Loads the default model locally.
@@ -164,3 +196,5 @@ P2P LLM compute exchange prototype for HackUPC 2026.
   - The provider trusts `creditAck` messages from the consumer.
   - There is no shared ledger, signing, consensus, or fraud prevention yet.
 - First local model load can download a large QVAC model cache.
+- If `pear run . serve` prints `command not found`, Pear is not installed or not on `PATH`.
+- If Node commands report WSL/runtime errors, install Linux Node inside WSL instead of using the Windows Node/npm shim.
