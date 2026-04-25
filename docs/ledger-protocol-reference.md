@@ -5,8 +5,9 @@
 - `src/ledger/protocol.js`
 - `src/ledger/app.js`
 - `src/ledger/network-simulator.js`
+- `scripts/p2p-ledger-hyperswarm.js`
 
-## Signed event types
+## Signed Event Types
 
 ### `register-account`
 
@@ -24,20 +25,10 @@ Signed by:
 
 - account private key
 
-### `grant`
+Notes:
 
-Fields:
-
-- `type`
-- `txId`
-- `toAccount`
-- `amount`
-- `createdAt`
-- `authoritySignature`
-
-Signed by:
-
-- authority private key
+- valid registration creates `account:<accountId>`
+- valid registration also creates an initial credit entry for that account
 
 ### `transfer-proposal`
 
@@ -50,6 +41,8 @@ Fields:
 - `amount`
 - `memo`
 - `createdAt`
+- `senderPublicKeyPem`
+- `senderName`
 - `senderSignature`
 
 Signed by:
@@ -64,13 +57,15 @@ Fields:
 - `txId`
 - `recipientAccount`
 - `acceptedAt`
+- `recipientPublicKeyPem`
+- `recipientName`
 - `recipientSignature`
 
 Signed by:
 
 - recipient private key
 
-## Derived view keys
+## Derived View Keys
 
 - `account:<accountId>`
 - `proposal:<txId>`
@@ -78,7 +73,39 @@ Signed by:
 - `entry:<txId>`
 - `status:<txId>`
 
-## Finalized transfer rule
+## Settled Entry Types
+
+### `initial-credit`
+
+Written when a valid `register-account` event is first applied.
+
+Fields:
+
+- `type`
+- `txId`
+- `toAccount`
+- `amount`
+- `createdAt`
+- `signatures.account`
+
+### `transfer`
+
+Written when both proposal and acceptance exist for the same `txId`.
+
+Fields:
+
+- `type`
+- `txId`
+- `fromAccount`
+- `toAccount`
+- `amount`
+- `memo`
+- `createdAt`
+- `acceptedAt`
+- `signatures.sender`
+- `signatures.recipient`
+
+## Finalized Transfer Rule
 
 A transfer is finalized when:
 
@@ -88,32 +115,59 @@ A transfer is finalized when:
 
 Then `entry:<txId>` is written with both signatures attached.
 
-## Important helpers
+## Balance Rule
+
+Balances are derived by replay:
+
+- `initial-credit` adds to `toAccount`
+- `transfer` subtracts from `fromAccount`
+- `transfer` adds to `toAccount`
+
+Balances are never the source of truth.
+
+## Important Helpers
 
 From `protocol.js`:
 
-- `createApply(...)`
+- `createApply()`
 - `openLedgerView(...)`
 - `createIdentity()`
 - `signRegistration(...)`
-- `signGrant(...)`
 - `signTransferProposal(...)`
 - `signTransferAcceptance(...)`
 - `computeBalance(...)`
 - `computeAllBalances(...)`
+- `findAccountByName(...)`
+- `findAccountNameById(...)`
 - `listPendingForRecipient(...)`
+- `readHistory(...)`
+- `shortId(...)`
 
 From `app.js`:
 
 - `createAccount(...)`
-- `buildSignedGrant(...)`
+- `announceAccount(...)`
 - `buildSignedTransferProposal(...)`
+- `buildSignedTransferProposalToAccount(...)`
 - `buildSignedTransferAcceptance(...)`
 - `submitSignedEvent(...)`
-- `grant(...)`
+- `ingestSignedEvent(...)`
 - `proposeTransfer(...)`
+- `proposeTransferToAccount(...)`
 - `acceptTransfer(...)`
 - `pending(...)`
 - `balances(...)`
 - `history(...)`
-- `syncPeer(...)`
+
+## Demo Hyperswarm Notes
+
+The current demo Hyperswarm script uses:
+
+- one topic for store replication
+- one topic for signed event gossip
+
+The safest demo command for sending credits is:
+
+- `send-id <toAccountId> <amount> [memo]`
+
+That avoids depending on name discovery timing.
