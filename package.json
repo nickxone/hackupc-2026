@@ -9,7 +9,8 @@
     "delegated": "node scripts/delegated-test.js"
   },
   "dependencies": {
-    "@qvac/sdk": "^0.9.1"
+    "@qvac/sdk": "^0.9.1",
+    "hyperswarm": "^4.17.0"
   },
   "engines": {
     "node": ">=20"

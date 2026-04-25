@@ -1,28 +1,61 @@
+import Hyperswarm from "hyperswarm";
+
+const ANNOUNCE_INTERVAL_MS = 10_000;
+
 export class Discovery {
-  constructor({ topic, selfPubkey, selfName, models }) {
-    this.topic = topic;
-    this.selfPubkey = selfPubkey;
-    this.selfName = selfName;
-    this.models = models;
+  constructor({
+    topicHex,
+    peerName,
+    models,
+    qvacTopic,
+    qvacProviderPublicKey,
+  }) {
+    if (!topicHex || topicHex.length !== 64) {
+      throw new Error("Discovery: topicHex must be 64 hex chars (32 bytes)");
+    }
+    this.topicHex = topicHex;
+    this.topic = Buffer.from(topicHex, "hex");
+    this.peerName = peerName ?? "anonymous";
+    this.models = models ?? [];
+    this.qvacTopic = qvacTopic ?? null;
+    this.qvacProviderPublicKey = qvacProviderPublicKey ?? null;
+
+    this.swarm = null;
     this.peers = new Map();
-    this.handlers = { announce: [], creditAck: [] };
+    this.conns = new Map();
+    this.handlers = { announce: [], creditAck: [], peerLeft: [] };
+    this.announceInterval = null;
   }
 
   async start() {
-    throw new Error("Discovery.start: not implemented — wire up Hyperswarm");
+    this.swarm = new Hyperswarm();
+    this.swarm.on("connection", (conn, info) =>
+      this.#onConnection(conn, info),
+    );
+    const discovery = this.swarm.join(this.topic, {
+      server: true,
+      client: true,
+    });
+    await discovery.flushed();
+    this.announceInterval = setInterval(
+      () => this.#broadcastAnnounce(),
+      ANNOUNCE_INTERVAL_MS,
+    );
   }
 
   async stop() {
-    throw new Error("Discovery.stop: not implemented");
+    if (this.announceInterval) clearInterval(this.announceInterval);
+    this.announceInterval = null;
+    if (this.swarm) {
+      await this.swarm.destroy();
+      this.swarm = null;
+    }
+    this.peers.clear();
+    this.conns.clear();
   }
 
-  async announce() {
-    throw new Error("Discovery.announce: not implemented");
-  }
-
-  async sendCreditAck({ to, tokens, credits, model }) {
-    void to; void tokens; void credits; void model;
-    throw new Error("Discovery.sendCreditAck: not implemented");
+  myPeerId() {
+    return this.swarm?.keyPair.publicKey.toString("hex") ?? null;
   }
 
   on(event, handler) {
@@ -32,5 +65,88 @@ export class Discovery {
 
   listPeers() {
     return Array.from(this.peers.values());
+  }
+
+  async sendCreditAck({ to, tokens, credits, model }) {
+    const conn = this.conns.get(to);
+    if (!conn) throw new Error(`No active connection to peer ${to}`);
+    const msg = { t: "creditAck", to, tokens, credits, model };
+    conn.write(JSON.stringify(msg) + "\n");
+  }
+
+  #onConnection(conn, info) {
+    const peerId = info.publicKey.toString("hex");
+    this.conns.set(peerId, conn);
+
+    let buf = "";
+    conn.on("data", (chunk) => {
+      buf += chunk.toString();
+      let idx;
+      while ((idx = buf.indexOf("\n")) !== -1) {
+        const line = buf.slice(0, idx);
+        buf = buf.slice(idx + 1);
+        if (line.trim()) this.#handleFrame(peerId, line);
+      }
+    });
+    conn.on("error", () => {});
+    conn.on("close", () => this.#onClose(peerId));
+
+    this.#sendAnnounceTo(conn);
+  }
+
+  #handleFrame(peerId, line) {
+    let msg;
+    try {
+      msg = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (msg.t === "announce") {
+      const peer = {
+        peerId,
+        peerName: msg.peerName,
+        models: msg.models ?? [],
+        qvacTopic: msg.qvacTopic ?? null,
+        qvacProviderPublicKey: msg.qvacProviderPublicKey ?? null,
+        firstSeenAt: this.peers.get(peerId)?.firstSeenAt ?? Date.now(),
+        lastSeenAt: Date.now(),
+      };
+      this.peers.set(peerId, peer);
+      this.handlers.announce.forEach((h) => h(peer));
+    } else if (msg.t === "creditAck" && msg.to === this.myPeerId()) {
+      this.handlers.creditAck.forEach((h) =>
+        h({
+          from: peerId,
+          tokens: msg.tokens,
+          credits: msg.credits,
+          model: msg.model,
+        }),
+      );
+    }
+  }
+
+  #onClose(peerId) {
+    this.conns.delete(peerId);
+    const had = this.peers.delete(peerId);
+    if (had) this.handlers.peerLeft.forEach((h) => h(peerId));
+  }
+
+  #sendAnnounceTo(conn) {
+    const msg = {
+      t: "announce",
+      peerName: this.peerName,
+      models: this.models,
+      qvacTopic: this.qvacTopic,
+      qvacProviderPublicKey: this.qvacProviderPublicKey,
+    };
+    try {
+      conn.write(JSON.stringify(msg) + "\n");
+    } catch {
+      // connection might be closing
+    }
+  }
+
+  #broadcastAnnounce() {
+    for (const conn of this.conns.values()) this.#sendAnnounceTo(conn);
   }
 }
