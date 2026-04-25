@@ -22,6 +22,9 @@
     "demo:ledger": "node scripts/autobase-ledger-demo.js",
     "ledger:cli": "node scripts/p2p-ledger-cli.js",
     "ledger:sim": "node scripts/p2p-ledger-network-sim.js",
+    "reviews:cli": "node scripts/reviews-cli.js",
+    "reviews:demo": "node scripts/review-demo.js",
+    "reviews:test": "node scripts/review-protection-test.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

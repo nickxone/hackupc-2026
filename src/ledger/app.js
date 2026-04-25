@@ -10,12 +10,15 @@ const protocol = require('./protocol')
 const HARDCODED_BOOTSTRAP_KEY = 'a82b2a66f25d7b518a1931a4bbd37bce4b3f8908d9fa3293d130c001f7abbeb5'
 
 class LocalLedgerApp {
-  constructor({ rootDir = path.resolve(process.env.P2P_LEDGER_ROOT || '.p2p-ledger-demo') } = {}) {
+  constructor({ rootDir = path.resolve(process.env.P2P_LEDGER_ROOT || '.p2p-ledger-demo'), persistentNodes = false } = {}) {
     this.rootDir = rootDir
+    this.persistentNodes = persistentNodes
     this.accountsDir = path.join(rootDir, 'accounts')
     this.peersDir = path.join(rootDir, 'peers')
     this.bootstrapDir = path.join(rootDir, 'bootstrap')
     this.authorityFile = path.join(rootDir, 'authority.json')
+    this._authorityNode = null
+    this._peerNodes = new Map()
   }
 
   async ensureReady() {
@@ -24,7 +27,6 @@ class LocalLedgerApp {
     fs.mkdirSync(this.peersDir, { recursive: true })
     fs.mkdirSync(this.bootstrapDir, { recursive: true })
     await this.ensureAuthority()
-    await this.ensureBootstrapBase()
   }
 
   async createAccount(name) {
@@ -228,6 +230,20 @@ class LocalLedgerApp {
     }
   }
 
+  async getSettledEntry(txId) {
+    assertRequired(txId, 'txId')
+    await this.ensureReady()
+
+    const authority = await this.openAuthority()
+    try {
+      await this.syncStandaloneBase(authority.base)
+      const entry = await authority.base.view.get(`entry:${txId}`)
+      return entry ? entry.value : null
+    } finally {
+      await this.closeNode(authority)
+    }
+  }
+
   async syncPeer(name) {
     const peer = await this.openPeer(name)
     const authority = await this.openAuthority()
@@ -264,6 +280,10 @@ class LocalLedgerApp {
     assertName(name)
     await this.ensureReady()
 
+    if (this.persistentNodes && this._peerNodes.has(name)) {
+      return this._peerNodes.get(name)
+    }
+
     const account = this.loadAccount(name)
     const bootstrap = this.loadBootstrap()
     const authority = this.loadAuthority()
@@ -277,11 +297,21 @@ class LocalLedgerApp {
     })
 
     await base.ready()
-    return { name, account, store, base }
+    const node = { name, account, store, base }
+
+    if (this.persistentNodes) {
+      this._peerNodes.set(name, node)
+    }
+
+    return node
   }
 
   async openAuthority() {
     await this.ensureReady()
+
+    if (this.persistentNodes && this._authorityNode) {
+      return this._authorityNode
+    }
 
     const bootstrap = this.loadBootstrap()
     const authority = this.loadAuthority()
@@ -294,42 +324,40 @@ class LocalLedgerApp {
     })
 
     await base.ready()
-    return { store, base, authority }
+    const node = { store, base, authority }
+
+    if (this.persistentNodes) {
+      this._authorityNode = node
+    }
+
+    return node
   }
 
   async closeNode(node) {
     if (!node) return
+    if (this.persistentNodes) return
     await node.base.close()
     await node.store.close()
   }
 
+  async shutdown() {
+    const peers = [...this._peerNodes.values()]
+    this._peerNodes.clear()
+
+    for (const peer of peers) {
+      await peer.base.close()
+      await peer.store.close()
+    }
+
+    if (this._authorityNode) {
+      const authority = this._authorityNode
+      this._authorityNode = null
+      await authority.base.close()
+      await authority.store.close()
+    }
+  }
+
   async ensureBootstrapBase() {
-    const legacyBootstrapFile = path.join(this.rootDir, 'bootstrap.json')
-    if (fs.existsSync(legacyBootstrapFile)) {
-      const legacy = loadJson(legacyBootstrapFile)
-      if (legacy.key !== HARDCODED_BOOTSTRAP_KEY) {
-        throw new Error(`bootstrap.json key does not match hardcoded market key: ${legacy.key}`)
-      }
-      return this.loadBootstrap()
-    }
-
-    const authority = this.loadAuthority()
-    const store = new Corestore(this.bootstrapDir)
-    const base = new Autobase(store, null, {
-      open: protocol.openLedgerView,
-      apply: protocol.createApply({ authorityPublicKeyPem: authority.publicKeyPem }),
-      valueEncoding: 'json',
-      optimistic: true
-    })
-
-    await base.ready()
-    if (base.key.toString('hex') !== HARDCODED_BOOTSTRAP_KEY) {
-      await base.close()
-      await store.close()
-      throw new Error(`Initialized Autobase key ${base.key.toString('hex')} does not match hardcoded market key ${HARDCODED_BOOTSTRAP_KEY}`)
-    }
-    await base.close()
-    await store.close()
     return this.loadBootstrap()
   }
 
@@ -351,6 +379,10 @@ class LocalLedgerApp {
 
   loadAccount(name) {
     return loadJson(this.accountFile(name))
+  }
+
+  getAccount(name) {
+    return this.loadAccount(name)
   }
 
   accountFile(name) {

@@ -6,9 +6,9 @@ const { SimulatedLedgerNetwork } = require('../src/ledger/network-simulator')
 async function main() {
   const rootDir = process.argv[2]
     ? path.resolve(process.argv[2])
-    : path.resolve(process.env.P2P_LEDGER_ROOT || '.p2p-ledger-sim')
+    : path.resolve(process.env.P2P_LEDGER_ROOT || '.p2p-ledger-demo')
 
-  const app = new LocalLedgerApp({ rootDir })
+  const app = new LocalLedgerApp({ rootDir, persistentNodes: true })
   const network = new SimulatedLedgerNetwork(app, {
     minDelayMs: 60,
     maxDelayMs: 300,
@@ -76,6 +76,8 @@ async function main() {
   for (const entry of await app.history()) {
     console.log(`  ${entry.key} -> ${JSON.stringify(entry.value)}`)
   }
+
+  await app.shutdown()
 }
 
 async function ensureAccount(app, name) {
