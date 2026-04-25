@@ -19,5 +19,5 @@ export const config = {
     pricePerTokenPerTier: 0.1,
   },
 
-  requestTimeoutMs: 30_000,
+  requestTimeoutMs: 60_000,
 };

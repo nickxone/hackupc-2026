@@ -76,6 +76,7 @@ export class Discovery {
 
   #onConnection(conn, info) {
     const peerId = info.publicKey.toString("hex");
+    console.log(`PEER_CONNECTED ${peerId.slice(0, 12)}`);
     this.conns.set(peerId, conn);
 
     let buf = "";

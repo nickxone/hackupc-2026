@@ -6,7 +6,9 @@
   "description": "P2P LLM compute exchange — HackUPC 2026",
   "scripts": {
     "local": "node scripts/local-test.js",
-    "delegated": "node scripts/delegated-test.js"
+    "delegated": "node scripts/delegated-test.js",
+    "discovery": "node scripts/discovery-test.js",
+    "peer": "node scripts/discovery-peer.js"
   },
   "dependencies": {
     "@qvac/sdk": "^0.9.1",

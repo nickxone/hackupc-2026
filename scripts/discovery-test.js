@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const peerScript = join(__dirname, "discovery-peer.js");
 
-const TIMEOUT_MS = 25_000;
+const TIMEOUT_MS = 60_000;
 
 function spawnPeer(name) {
   const child = spawn("node", [peerScript, name], {

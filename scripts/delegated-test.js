@@ -46,8 +46,9 @@ function waitForPublicKey(child) {
 
 function runConsumer(topic, pubkey) {
   return new Promise((resolve, reject) => {
-    const child = spawn("node", [consumerScript, topic, pubkey], {
+    const child = spawn("node", [consumerScript, pubkey], {
       stdio: "inherit",
+      env: { ...process.env, QVAC_TOPIC: topic },
     });
     child.on("error", reject);
     child.on("close", (code) => {
@@ -63,6 +64,8 @@ try {
   console.log("Waiting for provider to announce pubkey...\n");
   const pubkey = await waitForPublicKey(provider);
   console.log(`\nProvider pubkey captured: ${pubkey.slice(0, 12)}...`);
+  console.log("Waiting 3s for DHT propagation...");
+  await new Promise((r) => setTimeout(r, 3000));
   console.log("Running consumer in a separate process...\n");
   await runConsumer(topic, pubkey);
   console.log("\nDelegated inference test: PASS");
