@@ -112,7 +112,7 @@ const api = await startComputeExchangeApi({
       });
 
       await discovery.sendCreditAck({
-        to: provider.peerId, tokens, credits, model: model.key, txId: event.value.txId, fromName: peerName
+        to: provider.peerId, tokens, credits, model: model.key, txId: event.txId, fromName: peerName
       });
 
       console.log(`[ledger] Spent ${credits} credits. New balance: ${ledger.balance()}`);

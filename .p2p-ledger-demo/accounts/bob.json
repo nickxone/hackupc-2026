@@ -1,0 +1,7 @@
+{
+  "name": "bob",
+  "accountId": "528ef1481455154b7a7842149d916563d3d7689cd98df2da5681621985b97486",
+  "publicKeyPem": "ccf74a720ae96f688c3d57717ed3576511a3a84fabbee259e5faf75aeb15dfbd",
+  "privateKeyPem": "ea041683eba7a63b55340b27bd887a3c54173f9331573259a54e953ac5728417ccf74a720ae96f688c3d57717ed3576511a3a84fabbee259e5faf75aeb15dfbd",
+  "peerDir": "/Users/aleksandrustic/Documents/Programming/hackupc-2026/.p2p-ledger-demo/peers/bob"
+}

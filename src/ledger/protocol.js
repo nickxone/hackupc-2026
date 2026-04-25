@@ -1,22 +1,27 @@
-import crypto from 'bare-crypto'
+import hypercoreCrypto from 'hypercore-crypto'
+import b4a from 'b4a'
 import Hyperbee from 'hyperbee'
 
-function openLedgerView(store) {
+export function openLedgerView(store) {
   return new Hyperbee(store.get('shared-ledger'), {
     keyEncoding: 'utf-8',
     valueEncoding: 'json'
   })
 }
 
-function createApply({ authorityPublicKeyPem }) {
+export function createApply({ authorityPublicKeyPem }) {
   return async function apply(nodes, view, host) {
     for (const node of nodes) {
       if (!node || node.value == null) continue
 
       const value = node.value
+      // console.log(`[ledger:protocol] apply type=${value.type} txId=${value.txId || 'none'}`)
 
       if (value.type === 'register-account') {
-        if (!isValidRegistration(value)) continue
+        if (!isValidRegistration(value)) {
+          console.warn(`[ledger:protocol] invalid registration for ${value.name}`)
+          continue
+        }
 
         const existing = await view.get(`account:${value.accountId}`)
         if (!existing) {
@@ -28,13 +33,21 @@ function createApply({ authorityPublicKeyPem }) {
             createdAt: value.createdAt,
             signature: value.signature
           })
+          // console.log(`[ledger:protocol] registered account: ${value.name} (${value.accountId.slice(0, 12)})`)
+        }
+
+        if (value.writerKey) {
+          await host.ackWriter(b4a.from(value.writerKey, 'hex'))
         }
 
         continue
       }
 
       if (value.type === 'grant') {
-        if (!isValidGrant(value, authorityPublicKeyPem)) continue
+        if (!isValidGrant(value, authorityPublicKeyPem)) {
+          console.warn(`[ledger:protocol] invalid grant for ${value.toAccount}`)
+          continue
+        }
 
         const existing = await view.get(`entry:${value.txId}`)
         if (!existing) {
@@ -48,6 +61,7 @@ function createApply({ authorityPublicKeyPem }) {
               authority: value.authoritySignature
             }
           })
+          // console.log(`[ledger:protocol] finalized grant: ${value.amount} -> ${value.toAccount.slice(0, 12)}`)
         }
 
         continue
@@ -55,8 +69,14 @@ function createApply({ authorityPublicKeyPem }) {
 
       if (value.type === 'transfer-proposal') {
         const sender = await view.get(`account:${value.fromAccount}`)
-        if (!sender) continue
-        if (!isValidProposal(value, sender.value.publicKeyPem)) continue
+        if (!sender) {
+          // console.warn(`[ledger:protocol] transfer-proposal sender not found: ${value.fromAccount.slice(0, 12)}`)
+          continue
+        }
+        if (!isValidProposal(value, sender.value.publicKeyPem)) {
+          console.warn(`[ledger:protocol] invalid transfer-proposal from ${value.fromAccount.slice(0, 12)}`)
+          continue
+        }
 
         await host.ackWriter(node.from.key)
 
@@ -71,6 +91,7 @@ function createApply({ authorityPublicKeyPem }) {
             createdAt: value.createdAt,
             senderSignature: value.senderSignature
           })
+          // console.log(`[ledger:protocol] stored proposal: ${value.txId.slice(0, 12)}`)
         }
 
         await tryFinalizeTransfer(value.txId, view)
@@ -79,8 +100,14 @@ function createApply({ authorityPublicKeyPem }) {
 
       if (value.type === 'transfer-acceptance') {
         const recipient = await view.get(`account:${value.recipientAccount}`)
-        if (!recipient) continue
-        if (!isValidAcceptance(value, recipient.value.publicKeyPem)) continue
+        if (!recipient) {
+          // console.warn(`[ledger:protocol] transfer-acceptance recipient not found: ${value.recipientAccount.slice(0, 12)}`)
+          continue
+        }
+        if (!isValidAcceptance(value, recipient.value.publicKeyPem)) {
+          console.warn(`[ledger:protocol] invalid transfer-acceptance from ${value.recipientAccount.slice(0, 12)}`)
+          continue
+        }
 
         await host.ackWriter(node.from.key)
 
@@ -92,6 +119,7 @@ function createApply({ authorityPublicKeyPem }) {
             acceptedAt: value.acceptedAt,
             recipientSignature: value.recipientSignature
           })
+          // console.log(`[ledger:protocol] stored acceptance: ${value.txId.slice(0, 12)}`)
         }
 
         await tryFinalizeTransfer(value.txId, view)
@@ -106,7 +134,10 @@ async function tryFinalizeTransfer(txId, view) {
 
   const proposalEntry = await view.get(`proposal:${txId}`)
   const acceptanceEntry = await view.get(`acceptance:${txId}`)
-  if (!proposalEntry || !acceptanceEntry) return
+  if (!proposalEntry || !acceptanceEntry) {
+    // console.log(`[ledger:protocol] cannot finalize ${txId.slice(0, 12)} yet: prop=${!!proposalEntry} acc=${!!acceptanceEntry}`)
+    return
+  }
 
   const proposal = proposalEntry.value
   const acceptance = acceptanceEntry.value
@@ -131,12 +162,13 @@ async function tryFinalizeTransfer(txId, view) {
     txId,
     state: 'finalized'
   })
+  console.log(`[ledger:protocol] FINALIZED transfer ${txId.slice(0, 12)}: ${proposal.amount} from ${proposal.fromAccount.slice(0, 8)} to ${proposal.toAccount.slice(0, 8)}`)
 }
 
-function createIdentity() {
-  const keyPair = crypto.generateKeyPairSync('ed25519')
-  const publicKeyPem = keyPair.publicKey.export({ type: 'spki', format: 'pem' })
-  const privateKeyPem = keyPair.privateKey.export({ type: 'pkcs8', format: 'pem' })
+export function createIdentity() {
+  const keyPair = hypercoreCrypto.keyPair()
+  const publicKeyPem = b4a.toString(keyPair.publicKey, 'hex')
+  const privateKeyPem = b4a.toString(keyPair.secretKey, 'hex')
 
   return {
     accountId: hashId(publicKeyPem),
@@ -145,7 +177,7 @@ function createIdentity() {
   }
 }
 
-function signRegistration(identity, name, writerKey, createdAt = new Date().toISOString()) {
+export function signRegistration(identity, name, writerKey, createdAt = new Date().toISOString()) {
   const payload = registrationPayload({
     accountId: identity.accountId,
     name,
@@ -160,7 +192,7 @@ function signRegistration(identity, name, writerKey, createdAt = new Date().toIS
   }
 }
 
-function signGrant(authority, toAccount, amount, txId = crypto.randomUUID(), createdAt = new Date().toISOString()) {
+export function signGrant(authority, toAccount, amount, txId = b4a.toString(hypercoreCrypto.randomBytes(16), 'hex'), createdAt = new Date().toISOString()) {
   const payload = grantPayload({
     txId,
     toAccount,
@@ -174,7 +206,7 @@ function signGrant(authority, toAccount, amount, txId = crypto.randomUUID(), cre
   }
 }
 
-function signTransferProposal(identity, toAccount, amount, memo = '', txId = crypto.randomUUID(), createdAt = new Date().toISOString()) {
+export function signTransferProposal(identity, toAccount, amount, memo = '', txId = b4a.toString(hypercoreCrypto.randomBytes(16), 'hex'), createdAt = new Date().toISOString()) {
   const payload = proposalPayload({
     txId,
     fromAccount: identity.accountId,
@@ -190,7 +222,7 @@ function signTransferProposal(identity, toAccount, amount, memo = '', txId = cry
   }
 }
 
-function signTransferAcceptance(identity, txId, acceptedAt = new Date().toISOString()) {
+export function signTransferAcceptance(identity, txId, acceptedAt = new Date().toISOString()) {
   const payload = acceptancePayload({
     txId,
     recipientAccount: identity.accountId,
@@ -203,7 +235,7 @@ function signTransferAcceptance(identity, txId, acceptedAt = new Date().toISOStr
   }
 }
 
-async function computeBalance(view, accountId) {
+export async function computeBalance(view, accountId) {
   let balance = 0
 
   for await (const entry of view.createReadStream({ gte: 'entry:', lt: 'entry:~' })) {
@@ -223,7 +255,7 @@ async function computeBalance(view, accountId) {
   return balance
 }
 
-async function computeAllBalances(view) {
+export async function computeAllBalances(view) {
   const balances = new Map()
 
   for await (const entry of view.createReadStream({ gte: 'entry:', lt: 'entry:~' })) {
@@ -243,7 +275,7 @@ async function computeAllBalances(view) {
   return balances
 }
 
-async function listPendingForRecipient(view, accountId) {
+export async function listPendingForRecipient(view, accountId) {
   const pending = []
 
   for await (const entry of view.createReadStream({ gte: 'proposal:', lt: 'proposal:~' })) {
@@ -258,7 +290,7 @@ async function listPendingForRecipient(view, accountId) {
   return pending
 }
 
-async function readHistory(view) {
+export async function readHistory(view) {
   const history = []
 
   for await (const entry of view.createReadStream({ gte: 'entry:', lt: 'entry:~' })) {
@@ -268,7 +300,7 @@ async function readHistory(view) {
   return history
 }
 
-async function findAccountNameById(view, accountId) {
+export async function findAccountNameById(view, accountId) {
   const entry = await view.get(`account:${accountId}`)
   return entry ? entry.value.name : null
 }
@@ -350,18 +382,17 @@ function acceptancePayload(value) {
 }
 
 function signPayload(privateKeyPem, payload) {
-  return crypto.sign(null, Buffer.from(stableStringify(payload)), privateKeyPem).toString('base64')
+  const secretKey = b4a.from(privateKeyPem, 'hex')
+  const msg = b4a.from(stableStringify(payload))
+  return b4a.toString(hypercoreCrypto.sign(msg, secretKey), 'base64')
 }
 
 function verifyPayload(publicKeyPem, payload, signature) {
   if (typeof signature !== 'string' || signature.length === 0) return false
-
-  return crypto.verify(
-    null,
-    Buffer.from(stableStringify(payload)),
-    publicKeyPem,
-    Buffer.from(signature, 'base64')
-  )
+  const publicKey = b4a.from(publicKeyPem, 'hex')
+  const sig = b4a.from(signature, 'base64')
+  const msg = b4a.from(stableStringify(payload))
+  return hypercoreCrypto.verify(msg, sig, publicKey)
 }
 
 function stableStringify(value) {
@@ -372,31 +403,14 @@ function stableStringify(value) {
   return `{${keys.map(key => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`
 }
 
-function hashId(input) {
-  return crypto.createHash('sha256').update(input).digest('hex')
+export function hashId(input) {
+  return b4a.toString(hypercoreCrypto.hash(b4a.from(input)), 'hex')
 }
 
-function shortId(value) {
+export function shortId(value) {
   return value.slice(0, 12)
 }
 
 function isObject(value) {
   return value && typeof value === 'object'
-}
-
-export {
-  computeAllBalances,
-  computeBalance,
-  createApply,
-  createIdentity,
-  findAccountNameById,
-  hashId,
-  listPendingForRecipient,
-  openLedgerView,
-  readHistory,
-  shortId,
-  signGrant,
-  signRegistration,
-  signTransferAcceptance,
-  signTransferProposal
 }

@@ -11,7 +11,7 @@ const ledgerDir = ".p2p-ledger-demo";
 
 const PROVIDER_NAME = "alice";
 const CONSUMER_NAME = "bob";
-const PROVIDER_READY_TIMEOUT_MS = 30_000;
+const PROVIDER_READY_TIMEOUT_MS = 60_000;
 const CONSUMER_TIMEOUT_MS = 120_000;
 
 console.log("Resetting data/ and .p2p-ledger-demo/ ...");
@@ -21,7 +21,7 @@ await rm(ledgerDir, { recursive: true, force: true }).catch(() => {});
 function spawnNamed(name, script) {
   const child = spawn("pear", ["run", script], {
     stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, PEER_NAME: name },
+    env: { ...process.env, PEER_NAME: name, P2P_LEDGER_ROOT: `.p2p-ledger-${name}` },
   });
   child.stderr.on("data", (c) =>
     process.stderr.write(`[${name} stderr] ${c}`),

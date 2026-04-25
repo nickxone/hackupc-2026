@@ -115,7 +115,7 @@ const commandDefinitions = [
             });
 
             await discovery.sendCreditAck({
-              to: provider.peerId, tokens, credits, model: model.key, txId: event.value.txId, fromName: peerName
+              to: provider.peerId, tokens, credits, model: model.key, txId: event.txId, fromName: peerName
             });
             
             await unload({ modelId });

@@ -31,6 +31,7 @@ export class Ledger {
   }
 
   async _syncState() {
+    await this.app.syncPeer(this.name);
     const balances = await this.app.balances();
     const myBalance = balances.find((b) => b.name === this.name);
     this.state.balance = myBalance ? myBalance.amount : 0;

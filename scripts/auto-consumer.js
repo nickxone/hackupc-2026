@@ -1,3 +1,5 @@
+import process from "bare-process";
+import "../qvac/worker.entry.mjs";
 import {
   loadDelegatedModel,
   runCompletion,
@@ -15,7 +17,7 @@ const prompt = process.argv[2] || "Say hello in exactly 5 words.";
 const requestedModel = getModel(
   process.env.MODEL || config.defaultModelKey,
 );
-const FIND_TIMEOUT_MS = 30_000;
+const FIND_TIMEOUT_MS = 60_000;
 
 const ledger = new Ledger(`data/${peerName}.ledger.json`);
 await ledger.load();
@@ -90,7 +92,7 @@ try {
     tokens,
     credits,
     model: requestedModel.id,
-    txId: event.value.txId,
+    txId: event.txId,
     fromName: peerName,
   });
   console.log(`[discovery] sent creditAck → ${provider.peerId.slice(0, 12)}`);

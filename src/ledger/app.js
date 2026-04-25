@@ -8,7 +8,7 @@ import b4a from 'b4a'
 
 import * as protocol from './protocol.js'
 
-const HARDCODED_BOOTSTRAP_KEY = 'a82b2a66f25d7b518a1931a4bbd37bce4b3f8908d9fa3293d130c001f7abbeb5'
+const HARDCODED_BOOTSTRAP_KEY = 'b7813e1688d2ac605f83bbb68b6a7d98fd005f4abd5736b9dcf04684b80254af'
 
 class LocalLedgerApp {
   constructor({ rootDir = path.resolve(process.env.P2P_LEDGER_ROOT || '.p2p-ledger-demo') } = {}) {
@@ -16,14 +16,15 @@ class LocalLedgerApp {
     this.accountsDir = path.join(rootDir, 'accounts')
     this.peersDir = path.join(rootDir, 'peers')
     this.bootstrapDir = path.join(rootDir, 'bootstrap')
+    this.bootstrapFile = path.join(rootDir, 'bootstrap.json')
     this.authorityFile = path.join(rootDir, 'authority.json')
   }
 
   async ensureReady() {
-    fs.mkdirSync(this.rootDir, { recursive: true })
-    fs.mkdirSync(this.accountsDir, { recursive: true })
-    fs.mkdirSync(this.peersDir, { recursive: true })
-    fs.mkdirSync(this.bootstrapDir, { recursive: true })
+    if (!fs.existsSync(this.rootDir)) fs.mkdirSync(this.rootDir, { recursive: true })
+    if (!fs.existsSync(this.accountsDir)) fs.mkdirSync(this.accountsDir, { recursive: true })
+    if (!fs.existsSync(this.peersDir)) fs.mkdirSync(this.peersDir, { recursive: true })
+    if (!fs.existsSync(this.bootstrapDir)) fs.mkdirSync(this.bootstrapDir, { recursive: true })
     await this.ensureAuthority()
     await this.ensureBootstrapBase()
   }
@@ -168,13 +169,35 @@ class LocalLedgerApp {
 
   async proposeTransfer(fromName, toName, amount, memo = '') {
     const event = await this.buildSignedTransferProposal(fromName, toName, amount, memo)
-    await this.submitSignedEvent(event, { syncNames: [fromName] })
+    const peer = await this.openPeer(fromName)
+    try {
+      await peer.base.append(event)
+      const authority = await this.openAuthority()
+      try {
+        await this.syncPair(peer.base, authority.base)
+      } finally {
+        await this.closeNode(authority)
+      }
+    } finally {
+      await this.closeNode(peer)
+    }
     return event
   }
 
   async acceptTransfer(name, txId) {
     const event = await this.buildSignedTransferAcceptance(name, txId)
-    await this.submitSignedEvent(event, { syncNames: [name] })
+    const peer = await this.openPeer(name)
+    try {
+      await peer.base.append(event)
+      const authority = await this.openAuthority()
+      try {
+        await this.syncPair(peer.base, authority.base)
+      } finally {
+        await this.closeNode(authority)
+      }
+    } finally {
+      await this.closeNode(peer)
+    }
     return event
   }
 
@@ -270,7 +293,10 @@ class LocalLedgerApp {
     const authority = this.loadAuthority()
 
     const store = new Corestore(account.peerDir)
+    await store.ready()
+    const local = store.get({ name: 'local' })
     const base = new Autobase(store, b4a.from(bootstrap.key, 'hex'), {
+      local,
       open: protocol.openLedgerView,
       apply: protocol.createApply({ authorityPublicKeyPem: authority.publicKeyPem }),
       valueEncoding: 'json',
@@ -278,6 +304,7 @@ class LocalLedgerApp {
     })
 
     await base.ready()
+    console.log(`[ledger:app] opened peer ${name} writable=${base.writable} local=${base.local?.key?.toString('hex').slice(0, 12)}`)
     return { name, account, store, base }
   }
 
@@ -287,7 +314,10 @@ class LocalLedgerApp {
     const bootstrap = this.loadBootstrap()
     const authority = this.loadAuthority()
     const store = new Corestore(this.bootstrapDir)
+    await store.ready()
+    const local = store.get({ name: 'local' })
     const base = new Autobase(store, b4a.from(bootstrap.key, 'hex'), {
+      local,
       open: protocol.openLedgerView,
       apply: protocol.createApply({ authorityPublicKeyPem: authority.publicKeyPem }),
       valueEncoding: 'json',
@@ -295,6 +325,7 @@ class LocalLedgerApp {
     })
 
     await base.ready()
+    console.log(`[ledger:app] opened authority writable=${base.writable} local=${base.local?.key?.toString('hex').slice(0, 12)}`)
     return { store, base, authority }
   }
 
@@ -305,14 +336,7 @@ class LocalLedgerApp {
   }
 
   async ensureBootstrapBase() {
-    const legacyBootstrapFile = path.join(this.rootDir, 'bootstrap.json')
-    if (fs.existsSync(legacyBootstrapFile)) {
-      const legacy = loadJson(legacyBootstrapFile)
-      if (legacy.key !== HARDCODED_BOOTSTRAP_KEY) {
-        throw new Error(`bootstrap.json key does not match hardcoded market key: ${legacy.key}`)
-      }
-      return this.loadBootstrap()
-    }
+    if (fs.existsSync(this.bootstrapFile)) return this.loadBootstrap()
 
     const authority = this.loadAuthority()
     const store = new Corestore(this.bootstrapDir)
@@ -324,14 +348,12 @@ class LocalLedgerApp {
     })
 
     await base.ready()
-    if (base.key.toString('hex') !== HARDCODED_BOOTSTRAP_KEY) {
-      await base.close()
-      await store.close()
-      throw new Error(`Initialized Autobase key ${base.key.toString('hex')} does not match hardcoded market key ${HARDCODED_BOOTSTRAP_KEY}`)
-    }
+    const key = base.key.toString('hex')
+    writeJson(this.bootstrapFile, { key })
+    
     await base.close()
     await store.close()
-    return this.loadBootstrap()
+    return { key }
   }
 
   async ensureAuthority() {
@@ -347,6 +369,9 @@ class LocalLedgerApp {
   }
 
   loadBootstrap() {
+    if (fs.existsSync(this.bootstrapFile)) {
+      return loadJson(this.bootstrapFile)
+    }
     return { key: HARDCODED_BOOTSTRAP_KEY }
   }
 
