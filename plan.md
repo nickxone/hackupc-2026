@@ -40,6 +40,7 @@ Judges see: peer list populate, prompts stream, balances tick live on all three 
 ```
 
 Two topics:
+
 1. **QVAC topic** — used by the SDK. Provider joins via `startQVACProvider({topic})`; consumer references it in `loadModel({delegate})`. The SDK handles the inference wire entirely.
 2. **Discovery topic** — our own thin Hyperswarm channel. Each peer announces `{publicKey, peerName, models: [{const, tier}]}` periodically. Each peer also sends `creditAck` messages here after consuming a completion.
 
@@ -54,21 +55,23 @@ Two topics:
 ## QVAC API touch points (cheat sheet)
 
 Provider:
+
 ```js
 const { publicKey } = await startQVACProvider({ topic: SHARED_TOPIC_HEX });
 // optional: firewall: { mode: "allow", publicKeys: [...] }
 ```
 
 Consumer:
+
 ```js
 const modelId = await loadModel({
-  modelSrc: LLAMA_3_2_1B_INST_Q4_0,        // or any registry constant
+  modelSrc: LLAMA_3_2_1B_INST_Q4_0, // or any registry constant
   modelType: "llm",
   delegate: {
     topic: SHARED_TOPIC_HEX,
     providerPublicKey,
     timeout: 15_000,
-    fallbackToLocal: false,                  // we don't want silent local fallback during demo
+    fallbackToLocal: false, // we don't want silent local fallback during demo
   },
 });
 
@@ -77,13 +80,16 @@ const response = completion({
   history: [{ role: "user", content: prompt }],
   stream: true,
 });
-for await (const token of response.tokenStream) { /* render */ }
-const stats = await response.stats;          // → tokens for credit math
+for await (const token of response.tokenStream) {
+  /* render */
+}
+const stats = await response.stats; // → tokens for credit math
 ```
 
 ## Discovery + credit-ack protocol (our own, on the discovery topic)
 
 JSON-line frames:
+
 ```
 {"t":"announce","peerId":"<pubkey>","peerName":"alex-air","models":[{"id":"LLAMA_3_2_1B_INST_Q4_0","tier":1}]}
 {"t":"creditAck","from":"<consumerPubkey>","to":"<providerPubkey>","model":"LLAMA_3_2_1B_INST_Q4_0","tokens":128,"credits":13}
