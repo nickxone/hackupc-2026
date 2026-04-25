@@ -23,10 +23,12 @@ const commandDefinitions = [
     description: "Start the local Compute Exchange API.",
     async run(args) {
       const options = parseDaemonArgs(args);
+      await import("../qvac/worker.entry.mjs");
       const { default: process } = await import("bare-process");
       const { startComputeExchangeApi } = await import("../src/server/compute-exchange-api.js");
       const { Discovery } = await import("../src/core/discovery.js");
       const { Ledger } = await import("../src/core/ledger.js");
+      const { createChatHandler, listModels } = await import("../src/server/chat-handler.js");
       const { discoveryTopic, qvacTopic } = await import("../src/topics.js");
       const { default: os } = await import("bare-os");
       const { hostname } = os;
@@ -38,7 +40,7 @@ const commandDefinitions = [
       const discovery = new Discovery({
         topicHex: discoveryTopic,
         peerName,
-        models: [], // Daemon is a consumer by default
+        models: [],
         qvacTopic,
       });
 
@@ -57,8 +59,10 @@ const commandDefinitions = [
 
       api = await startComputeExchangeApi({
         ...options,
+        onGetModels: async () => listModels(),
         onGetPeers: async () => discovery.listPeers(),
         onGetBalance: async () => ({ balance: ledger.balance(), log: ledger.state.log }),
+        onChat: createChatHandler({ ledger, discovery }),
       });
       return {
         output: renderDaemonStarted(api),
