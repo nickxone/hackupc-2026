@@ -13,6 +13,7 @@ async function main() {
     console.log(result.output);
   }
 
+  if (result.keepAlive) return;
   setExitCode(result.exitCode ?? 0);
 }
 

@@ -16,8 +16,9 @@ P2P LLM compute exchange prototype for HackUPC 2026.
   - `pear`
 - Run the Pear CLI shell:
   - `pear run . help`
-- Show the local Ollama-compatible API contract:
+- Start the local Compute Exchange API:
   - `pear run . daemon`
+  - `curl http://127.0.0.1:11434/api/version`
 - List providers with selection info:
   - `pear run . peers --wait 5000`
 - Ask with an automatic budget-aware provider pick:
@@ -74,10 +75,16 @@ P2P LLM compute exchange prototype for HackUPC 2026.
 - `cli/commands.js`
   - Defines `serve`, `ask`, `peers`, `balance`, and `rate`.
   - Keeps command behavior separate from terminal rendering.
-  - Defines the `daemon` contract for an Ollama-compatible local API.
+  - Starts the placeholder `daemon` for the local Compute Exchange API.
   - Defines the `peers` contract for provider selection output.
   - Parses `ask` filters for peer, model, budget, and provider strategy.
   - Keeps placeholders for unfinished daemon, provider, prompt, balance, and rating flows.
+
+- `src/server/compute-exchange-api.js`
+  - Local HTTP API surface for developer integrations.
+  - Exposes compatibility routes: `/api/version`, `/api/tags`, `/api/generate`, and `/api/chat`.
+  - Exposes project routes: `/api/peers`, `/api/balance`, and `/api/rate`.
+  - Returns placeholder responses until discovery, QVAC, credits, and ratings are wired.
 
 - `cli/render.js`
   - Shared terminal output formatting.

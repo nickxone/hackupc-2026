@@ -38,16 +38,16 @@ export function renderUsage({ commands }) {
   return lines.join("\n");
 }
 
-export function renderDaemonPlan({ options }) {
+export function renderDaemonStarted({ url, peerScanMs }) {
   return [
     renderTitle("Daemon"),
     "",
-    "Status: pending",
+    "Status: ready",
     "",
-    `Local API contract: http://${options.host}:${options.port}`,
-    `Peer scan window: ${options.peerScanMs}ms`,
+    `Local API: ${url}`,
+    `Peer scan window: ${peerScanMs}ms`,
     "",
-    "Planned Ollama-compatible routes:",
+    "Compatibility routes:",
     "- GET  /api/version",
     "- GET  /api/tags",
     "- POST /api/generate",
@@ -56,8 +56,10 @@ export function renderDaemonPlan({ options }) {
     "Compute Exchange routes:",
     "- GET  /api/peers",
     "- GET  /api/balance",
+    "- POST /api/rate",
     "",
-    "No server is started yet. This command only defines the CLI contract.",
+    "Generation, discovery, credits, and ratings currently return placeholder responses.",
+    "Press Ctrl+C to stop.",
   ].join("\n");
 }
 

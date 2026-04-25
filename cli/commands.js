@@ -1,10 +1,11 @@
 import {
   renderAskPlan,
   renderCommandResult,
-  renderDaemonPlan,
+  renderDaemonStarted,
   renderPeers,
   renderUsage,
 } from "./render.js";
+import { startComputeExchangeApi } from "../src/server/compute-exchange-api.js";
 
 const DEFAULT_PEER_SCAN_MS = 3_000;
 const ASK_STRATEGIES = new Set(["cheapest", "best", "fastest", "rated"]);
@@ -13,10 +14,14 @@ const commandDefinitions = [
   {
     name: "daemon",
     usage: "daemon [--host addr] [--port n]",
-    description: "Show the local Ollama-compatible API contract.",
-    run(args) {
+    description: "Start the local Compute Exchange API.",
+    async run(args) {
       const options = parseDaemonArgs(args);
-      return renderDaemonPlan({ options });
+      const api = await startComputeExchangeApi(options);
+      return {
+        output: renderDaemonStarted(api),
+        keepAlive: true,
+      };
     },
   },
   {
@@ -149,9 +154,13 @@ export async function runCommand(argv) {
     };
   }
 
+  const result = await command.run(args);
+  if (typeof result === "string") return { output: result, exitCode: 0 };
+
   return {
-    output: await command.run(args),
-    exitCode: 0,
+    output: result.output,
+    exitCode: result.exitCode ?? 0,
+    keepAlive: result.keepAlive ?? false,
   };
 }
 
