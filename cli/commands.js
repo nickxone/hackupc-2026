@@ -25,33 +25,50 @@ const commandDefinitions = [
       const options = parseDaemonArgs(args);
       await import("../qvac/worker.entry.mjs");
       const { default: process } = await import("bare-process");
+      const { resolve } = await import("bare-path");
       const { startComputeExchangeApi } = await import("../src/server/compute-exchange-api.js");
       const { Discovery } = await import("../src/core/discovery.js");
-      const { Ledger } = await import("../src/core/ledger.js");
+      const { LedgerNode } = await import("../src/ledger/node.js");
       const { createChatHandler, createModelsHandler } = await import("../src/server/chat-handler.js");
-      const { discoveryTopic, qvacTopic } = await import("../src/topics.js");
+      const { config } = await import("../src/config.js");
       const { default: os } = await import("bare-os");
       const { hostname } = os;
 
       const peerName = process.env?.PEER_NAME || hostname();
-      const ledger = new Ledger(`data/${peerName}.ledger.json`);
-      await ledger.load();
+      const ledger = new LedgerNode({
+        rootDir: resolve(`data/${peerName}/ledger`),
+        name: peerName,
+      });
+      await ledger.ready();
+      const ledgerRegistration = await ledger.announceAccount();
+      ledger.startBackgroundUpdates();
 
       const discovery = new Discovery({
-        topicHex: discoveryTopic,
+        topicHex: config.discoveryTopic,
         peerName,
         models: [],
-        qvacTopic,
+        qvacTopic: config.qvacTopic,
+        ledgerAccountId: ledger.accountId,
+        ledgerRegistration,
       });
 
-      discovery.on("creditAck", async (ack) => {
-        await ledger.earn(ack);
+      discovery.on("ledgerRegister", async ({ event }) => {
+        await ledger.ingestSignedEvent(event);
+      });
+
+      discovery.on("ledgerProposal", async ({ event }) => {
+        await ledger.ingestSignedEvent(event);
+      });
+
+      discovery.on("ledgerAcceptance", async ({ event }) => {
+        await ledger.ingestSignedEvent(event);
       });
 
       let api;
       setupDaemonCleanup({
         getApi: () => api,
         discovery,
+        ledger,
         process,
       });
 
@@ -60,9 +77,13 @@ const commandDefinitions = [
       api = await startComputeExchangeApi({
         ...options,
         onGetModels: createModelsHandler({ discovery }),
-        onGetPeers: async () => discovery.listPeers(),
-        onGetBalance: async () => ({ balance: ledger.balance(), log: ledger.state.log }),
-        onChat: createChatHandler({ ledger, discovery }),
+        onGetPeers: async () => ({ peerId: discovery.myPeerId(), peers: discovery.listPeers() }),
+        onGetBalance: async () => ({ balance: await ledger.balance(), log: await ledger.history() }),
+        onChat: createChatHandler({
+          ledger,
+          discovery,
+          pricePerRequest: config.ledger.pricePerRequest ?? 1,
+        }),
       });
       return {
         output: renderDaemonStarted(api),
@@ -673,7 +694,7 @@ function providerInfo(provider) {
   };
 }
 
-function setupDaemonCleanup({ getApi, discovery, process }) {
+function setupDaemonCleanup({ getApi, discovery, ledger, process }) {
   let cleaningUp = false;
 
   const cleanup = async (signal) => {
@@ -688,6 +709,7 @@ function setupDaemonCleanup({ getApi, discovery, process }) {
     const errors = [];
     await runCleanupStep("HTTP API", () => getApi()?.stop?.(), errors);
     await runCleanupStep("discovery", () => discovery.stop(), errors);
+    await runCleanupStep("ledger", () => ledger?.close?.(), errors);
 
     if (errors.length > 0) {
       for (const err of errors) {

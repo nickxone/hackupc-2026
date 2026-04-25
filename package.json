@@ -12,6 +12,8 @@
     "server": "pear run scripts/server.js",
     "cli": "pear run cli/index.js",
     "pear": "pear run .",
+    "ledger:init": "pear run scripts/init-ledger.js",
+    "ledger:smoke": "pear run scripts/ledger-smoke.js",
     "local": "pear run scripts/local-test.js",
     "delegated": "pear run scripts/delegated-test.js",
     "discovery": "pear run scripts/discovery-test.js",
@@ -23,8 +25,15 @@
   "dependencies": {
     "@qvac/sdk": "^0.9.1",
     "autobase": "^7.27.3",
+    "b4a": "^1.7.3",
+    "bare-crypto": "^3.5.4",
+    "bare-fs": "^4.5.3",
     "bare-http1": "^4.5.6",
+    "bare-path": "^3.0.0",
     "bare-process": "^4.4.1",
+    "corestore": "^7.9.2",
+    "hyperbee": "^2.27.3",
+    "hypercore-crypto": "^3.6.1",
     "hyperswarm": "^4.17.0"
   },
   "engines": {

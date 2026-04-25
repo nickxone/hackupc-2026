@@ -89,8 +89,15 @@ async function handleRequest(req, res, { peerScanMs, onChat, onGetPeers, onGetBa
 
   if (req.method === "GET" && url.pathname === "/api/peers") {
     if (onGetPeers) {
-      const peers = await onGetPeers();
-      return sendJson(res, 200, { peers, waitMs: peerScanMs });
+      const payload = await onGetPeers();
+      if (Array.isArray(payload)) {
+        return sendJson(res, 200, { peers: payload, waitMs: peerScanMs });
+      }
+      return sendJson(res, 200, {
+        peerId: payload?.peerId ?? null,
+        peers: payload?.peers ?? [],
+        waitMs: payload?.waitMs ?? peerScanMs,
+      });
     }
     return sendJson(res, 200, {
       peerId: null,
