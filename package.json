@@ -10,7 +10,8 @@
     "discovery": "node scripts/discovery-test.js",
     "peer": "node scripts/discovery-peer.js",
     "provider": "node scripts/provider.js",
-    "auto-consumer": "node scripts/auto-consumer.js"
+    "auto-consumer": "node scripts/auto-consumer.js",
+    "e2e": "node scripts/e2e-test.js"
   },
   "dependencies": {
     "@qvac/sdk": "^0.9.1",

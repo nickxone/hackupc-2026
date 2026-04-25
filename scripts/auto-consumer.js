@@ -100,10 +100,11 @@ process.exit(0);
 function waitForProvider({ discovery, modelId, timeoutMs }) {
   return new Promise((resolve, reject) => {
     let done = false;
+    let timer = null;
     const finish = (ok, value) => {
       if (done) return;
       done = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       if (ok) resolve(value);
       else reject(value);
     };
@@ -115,7 +116,7 @@ function waitForProvider({ discovery, modelId, timeoutMs }) {
     const existing = discovery.listPeers().find(matchPeer);
     if (existing) return finish(true, existing);
 
-    const timer = setTimeout(() => {
+    timer = setTimeout(() => {
       finish(
         false,
         new Error(`no provider for ${modelId} found within ${timeoutMs}ms`),
