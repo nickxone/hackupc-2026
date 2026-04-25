@@ -2,201 +2,160 @@
 
 P2P LLM compute exchange prototype for HackUPC 2026.
 
-- Peers can serve QVAC delegated inference.
-- Other peers can discover providers and run prompts against them.
-- Credits are tracked locally in JSON ledgers.
-- Discovery and payment acknowledgements use a small Hyperswarm side channel.
+Peers advertise QVAC-backed model capacity over Hyperswarm, consumers discover providers, and a local HTTP proxy exposes OpenAI/Ollama-compatible chat routes. Credits are tracked in local JSON ledgers and are intended to reconcile with trust-based `creditAck` messages on a discovery side channel.
 
 ## Quick Start
 
-- Install dependencies:
-  - `npm install`
-- Install/bootstrap Pear if `pear` is not on your `PATH`:
-  - `npm install -D pear`
-  - `npm run pear -- run pear://runtime`
-- Start a Provider (Terminal 1):
-  - `npm run provider`
-  - This peer will download the models and wait to serve requests.
-- Start the API Daemon (Terminal 2):
-  - `npm run pear -- daemon`
-  - This starts the local Pear daemon, listening on `http://127.0.0.1:11434`.
-- Send an Inference Request (Terminal 3):
-  - Use standard OpenAI formatting to query the decentralized network:
-  ```bash
-  curl -X POST http://127.0.0.1:11434/v1/chat/completions \
-       -H "Content-Type: application/json" \
-       -d '{"model": "llama-1b", "messages": [{"role": "user", "content": "Say hello in 5 words."}]}'
-  ```
-- Other CLI Commands (via Pear):
-  - List providers: `npm run pear -- peers --wait 5000`
-  - Show CLI help: `npm run pear -- help`
-- Run the legacy tests:
-  - `npm run local`
-  - `npm run delegated`
-  - `npm run e2e`
+Install dependencies:
+
+```bash
+npm install
+```
+
+Install/bootstrap Pear if `pear` is not on your `PATH`:
+
+```bash
+npm install -D pear
+pear run pear://runtime
+```
+
+Start a provider in one terminal:
+
+```bash
+PEER_NAME=alice pear run . serve
+```
+
+Start the HTTP proxy in another terminal:
+
+```bash
+PEER_NAME=bob pear run scripts/server.js
+```
+
+Send an OpenAI-compatible chat request:
+
+```bash
+curl -X POST http://127.0.0.1:11434/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"llama-1b","messages":[{"role":"user","content":"Say hello in 5 words."}]}'
+```
+
+Or send an Ollama-compatible chat request:
+
+```bash
+curl -X POST http://127.0.0.1:11434/api/chat \
+  -H "Content-Type: application/json" \
+  -d '{"model":"llama-1b","messages":[{"role":"user","content":"Say hello in 5 words."}]}'
+```
+
+Useful CLI commands:
+
+```bash
+pear run . serve --models llama-1b
+pear run . peers
+pear run . balance
+pear run . ask --model llama-1b "Explain P2P inference"
+pear run . help
+```
+
+Smoke tests and scripts:
+
+```bash
+pear run scripts/local-test.js
+pear run scripts/delegated-test.js
+pear run scripts/discovery-test.js
+pear run scripts/auto-consumer.js
+pear run scripts/e2e-test.js
+```
+
+## Runtime Model
+
+- `pear run . serve` starts QVAC provider mode, pre-downloads served models, joins the QVAC topic, joins discovery, advertises model keys/tiers, and earns credits from matching `creditAck` messages.
+- `pear run scripts/server.js` starts the real local chat proxy on `127.0.0.1:11434`. It joins discovery as a consumer, chooses a provider for the requested model, delegates the request through QVAC, streams the response, spends credits locally, and attempts to send a `creditAck`.
+- `pear run . daemon` starts the generic HTTP API shell, but does not currently wire delegated chat. Use `pear run scripts/server.js` for the working chat bridge.
+- `pear run . ask` queries `/api/peers`, selects a matching provider, and delegates directly from the CLI. It streams output, but currently does not debit the ledger or send a credit acknowledgement.
 
 ## Repository Map
 
-- `src/config.js`
-  - Central runtime configuration.
-  - Creates stable 64-char hex topics from names using SHA-256.
-  - Defines the default QVAC model, model tier, ledger pricing, and request timeout.
+- `src/config.js` defines the QVAC/discovery topics, model catalog, default model, ledger config, and request timeout.
+- `src/topics.js` derives 64-char hex topics from human-readable names with SHA-256.
+- `src/ledger-config.js` contains the initial balance and per-token tier pricing.
+- `src/core/qvac.js` is the only wrapper around `@qvac/sdk`.
+- `src/core/discovery.js` implements the Hyperswarm JSON-lines discovery and `creditAck` channel.
+- `src/core/ledger.js` persists local balances and earn/spend logs under `data/<peerName>.ledger.json`.
+- `src/server/provider-runtime.js` owns provider startup, pre-download, discovery, ledger earn handling, and shutdown.
+- `src/server/compute-exchange-api.js` owns the HTTP API routes and compatibility response shapes.
+- `scripts/provider.js` starts provider mode.
+- `scripts/server.js` starts the working HTTP proxy and delegated chat flow.
+- `scripts/consumer.js` delegates to a known QVAC provider public key without discovery or credits.
+- `scripts/auto-consumer.js` discovers a provider, runs one prompt, spends credits, and sends `creditAck`.
+- `scripts/local-test.js`, `scripts/delegated-test.js`, `scripts/discovery-test.js`, and `scripts/e2e-test.js` are smoke tests.
+- `cli/index.js`, `cli/commands.js`, and `cli/render.js` implement the Pear-native CLI.
+- `qvac/worker.entry.mjs` and `qvac/addons.manifest.json` are generated QVAC worker assets required by Pear.
 
-- `src/core/qvac.js`
-  - Thin wrapper around `@qvac/sdk`.
-  - Starts and stops QVAC providers.
-  - Loads local or delegated models.
-  - Runs streamed completions.
-  - Unloads models and shuts down the SDK.
+## Models
 
-- `src/core/discovery.js`
-  - Hyperswarm side-channel for peer discovery.
-  - Joins the shared discovery topic as both client and server.
-  - Sends `announce` messages on connect and every 10 seconds.
-  - Tracks connected peers and their advertised models.
-  - Sends and receives `creditAck` messages for local ledger updates.
+Configured models live in `src/config.js`:
 
-- `src/core/ledger.js`
-  - Local JSON-backed credit ledger.
-  - Creates a starting balance if no ledger exists.
-  - Records `earn` and `spend` log entries.
-  - Calculates credit price from token count and model tier.
+- `llama-1b`: `LLAMA_3_2_1B_INST_Q4_0`, tier `1`
+- `qwen-1.7b`: `QWEN3_1_7B_INST_Q4`, tier `3`
 
-- `cli/index.js`
-  - Pear terminal entrypoint.
-  - Parses CLI arguments and dispatches commands.
-  - Supports both Node-style `process.argv` and Pear/Bare-style `Bare.argv`.
+Providers serve all configured models by default. Limit the set with either:
 
-- `cli/commands.js`
-  - Defines `serve`, `ask`, `peers`, `balance`, and `rate`.
-  - Keeps command behavior separate from terminal rendering.
-  - Starts the placeholder `daemon` for the local Compute Exchange API.
-  - Defines the `peers` contract for provider selection output.
-  - Parses `ask` filters for peer, model, budget, and provider strategy.
-  - Keeps placeholders for unfinished daemon, provider, prompt, balance, and rating flows.
+```bash
+MODELS=llama-1b pear run . serve
+pear run . serve --models llama-1b,qwen-1.7b
+```
 
-- `src/server/compute-exchange-api.js`
-  - Local HTTP API surface for developer integrations.
-  - Acts as an OpenAI-compatible proxy (`/v1/chat/completions`) and Ollama-compatible proxy (`/api/chat`).
-  - Seamlessly bridges standard HTTP requests to the P2P QVAC network under the hood.
-  - Exposes project routes: `/api/peers` and `/api/balance`.
+## HTTP Routes
 
-- `cli/render.js`
-  - Shared terminal output formatting.
-  - Renders usage, peer selection info, command status, planned behavior, and command errors.
+Implemented by `startComputeExchangeApi`:
 
-- `scripts/local-test.js`
-  - Loads the default model locally.
-  - Runs one prompt.
-  - Streams tokens to stdout.
-  - Prints QVAC completion stats.
+- `GET /` returns API status.
+- `GET /api/version` returns version metadata.
+- `GET /api/peers` returns discovered peers when `onGetPeers` is wired.
+- `GET /api/balance` returns local ledger state when `onGetBalance` is wired.
+- `POST /api/chat` streams Ollama-style NDJSON when `onChat` is wired.
+- `POST /v1/chat/completions` streams OpenAI-style SSE when `onChat` is wired.
 
-- `scripts/provider.js`
-  - Starts a QVAC provider on the configured topic.
-  - Starts discovery and advertises the served model.
-  - Prints the provider public key for manual consumers.
-  - Listens for `creditAck` messages and adds earned credits.
+Current placeholders:
 
-- `scripts/consumer.js`
-  - Connects to a known provider public key.
-  - Loads the default model through QVAC delegation.
-  - Runs one prompt and streams the response.
-  - Does not use discovery or update credits.
-
-- `scripts/auto-consumer.js`
-  - Starts discovery as a non-provider peer.
-  - Waits for a provider advertising the default model.
-  - Runs a delegated prompt against that provider.
-  - Spends credits in the local ledger.
-  - Sends `creditAck` back to the provider.
-
-- `scripts/discovery-peer.js`
-  - Minimal discovery-only peer.
-  - Advertises the default model without starting QVAC provider service.
-  - Logs peers seen and peers leaving.
-  - Useful for checking Hyperswarm discovery behavior.
-
-- `scripts/discovery-test.js`
-  - Spawns two `discovery-peer.js` processes.
-  - Waits for each peer to see the other.
-  - Exits with pass/fail result.
-
-- `scripts/delegated-test.js`
-  - Spawns `provider.js`.
-  - Parses `PROVIDER_PUBLIC_KEY` from provider stdout.
-  - Runs `consumer.js` against that provider in a separate process.
-  - Verifies the delegated inference path.
-
-- `plan.md`
-  - Full project plan and demo story.
-  - Includes architecture notes, milestones, cut lines, risks, and stretch ideas.
-
-- `CLAUDE.md`
-  - Developer guidance for future coding agents.
-  - Includes useful operational notes and known QVAC pitfalls.
-
-- `errors.md`
-  - Captured provider and consumer logs.
-  - Useful for comparing QVAC startup, connection, and shutdown behavior.
-
-- `.gitignore`
-  - Ignores editor files, Node artifacts, QVAC/Hyperswarm state, and local ledger data.
-
-## Runtime Flow
-
-- Provider flow:
-  - Load local ledger from `data/<peerName>.ledger.json`.
-  - Start QVAC provider on `config.qvacTopic`.
-  - Start discovery on `config.discoveryTopic`.
-  - Announce peer name, model list, QVAC topic, and provider public key.
-  - Receive `creditAck` messages and add earned credits.
-
-- Manual consumer flow:
-  - Receive provider public key from command line.
-  - Load model through `loadDelegatedModel`.
-  - Stream completion output.
-  - Print QVAC stats.
-
-- Auto consumer flow:
-  - Load local ledger.
-  - Join discovery topic.
-  - Pick a peer advertising the default model and QVAC public key.
-  - Run delegated inference.
-  - Estimate tokens from QVAC stats or streamed token count.
-  - Spend credits locally.
-  - Send `creditAck` to the provider.
+- `GET /api/tags` returns an empty model list placeholder.
+- `POST /api/generate` returns a not-implemented response.
+- `POST /api/rate` returns `501`; provider ratings are not persisted.
 
 ## Discovery Protocol
 
-- Frames are newline-delimited JSON.
-- `announce`
-  - Sent on connection and periodically.
-  - Contains peer display name, advertised models, QVAC topic, and QVAC provider public key.
-- `creditAck`
-  - Sent by consumers after a delegated completion.
-  - Contains target peer id, token count, credit amount, and model id.
-  - Only processed by the addressed provider.
+Discovery frames are newline-delimited JSON over a separate Hyperswarm topic.
+
+`announce` frames are sent on connection and every 10 seconds:
+
+```json
+{"t":"announce","peerName":"alice","models":[{"id":"LLAMA_3_2_1B_INST_Q4_0","key":"llama-1b","tier":1}],"qvacTopic":"<hex>","qvacProviderPublicKey":"<hex>"}
+```
+
+`creditAck` frames are sent by consumers after delegated completions:
+
+```json
+{"t":"creditAck","to":"<discovery-peer-id>","tokens":128,"credits":13,"model":"llama-1b"}
+```
+
+Only a peer whose discovery id matches `to` processes the acknowledgement.
 
 ## Credit Model
 
-- Ledger state is local only.
-- Default starting balance: `100`.
-- Price formula:
-  - `ceil(tokens * pricePerTokenPerTier * tier)`
-- Current default pricing:
-  - `pricePerTokenPerTier = 0.1`
-  - default model tier = `1`
+- Ledger files are local only.
+- New ledgers start at `100` credits.
+- Pricing is `ceil(tokens * pricePerTokenPerTier * tier)`.
+- Current `pricePerTokenPerTier` is `0.1`.
+- The working HTTP server currently computes credits as `ceil(tokens / 10) * tier`, which is equivalent to the current config.
+- Credit acknowledgements are trust-based; there is no shared ledger, signing, consensus, or fraud prevention.
+- `auto-consumer.js` sends `creditAck` to the provider discovery peer id. `scripts/server.js` currently passes the provider QVAC public key, so provider-side earning through the HTTP path should be audited before demoing ledger symmetry.
 
 ## Important Notes
 
-- Hyperswarm topics must be exactly 32 bytes.
-  - Use topics from `src/config.js`.
-  - Do not hand-write short hex topics.
-- Provider and delegated consumer should run in separate Node processes.
-  - `scripts/delegated-test.js` handles this by spawning the provider child process.
-- Credits are trust-based.
-  - The provider trusts `creditAck` messages from the consumer.
-  - There is no shared ledger, signing, consensus, or fraud prevention yet.
-- First local model load can download a large QVAC model cache.
-- If `pear run . serve` prints `command not found`, Pear is not installed or not on `PATH`.
-- If Node commands report WSL/runtime errors, install Linux Node inside WSL instead of using the Windows Node/npm shim.
+- Run app entrypoints through Pear (`pear run . ...` or `pear run scripts/<entry>.js`). Scripts import Bare modules and generated QVAC worker assets.
+- Hyperswarm topics must be exactly 32 bytes, represented as 64 hex chars. Use `src/topics.js` and `src/config.js`.
+- Provider and consumer should run in separate processes. QVAC delegated provider and delegated consumer paths can deadlock when combined in one process.
+- Every QVAC entrypoint must import `qvac/worker.entry.mjs` before SDK use. Re-run `npx qvac bundle sdk` after changing `qvac.config.json` or upgrading `@qvac/sdk`.
+- First provider boot can download large model files into `~/.qvac/models/`.
+- DHT discovery can take 10-30 seconds and may fail on restrictive WiFi. A hotspot or controlled network is useful for demos.

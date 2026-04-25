@@ -1,145 +1,161 @@
-# P2P Compute Exchange — HackUPC 2026 Plan
+# P2P Compute Exchange - HackUPC 2026 Plan
 
 ## Brief
 
-Serverless, peer-to-peer platform where users trade LLM inference time for "compute credits." A peer with a small machine earns credits by serving small-model requests, then spends them to run larger-model prompts on more capable peers.
+Serverless, peer-to-peer platform where users trade LLM inference time for local credits. A peer earns credits by serving QVAC delegated inference, then spends credits by delegating prompts to another provider.
 
-Runtime: Pear. Inference + P2P transport: **QVAC SDK** (`@qvac/sdk`) — its **delegated inference** primitive (`startQVACProvider` / `loadModel({delegate})`) handles the Hyperswarm wiring, model registry, and token streaming for us. Discovery of providers + credit accounting layered on top via a small Hyperswarm side channel.
+Runtime: Pear/Bare. Inference and delegated transport: QVAC SDK (`@qvac/sdk`). Discovery and credits are layered on top with a small Hyperswarm side channel and local JSON ledgers.
 
 Team: 3 SWEs.
 
-## Demo story (what we're building toward)
+## Current Demo Story
 
-3 laptops side-by-side on stage:
+Two-laptop demo that works with the current implementation:
 
-- **Laptop A** (small, e.g. Air) — runs a QVAC provider for a small model (e.g. `LLAMA_3_2_1B_INST_Q4_0`), starts with 0 credits.
-- **Laptop B** — asks A to run inference several times. A earns credits.
-- **Laptop C** — runs a QVAC provider for a heavier model. A (now flush with credits) delegates a hard prompt to C. Credits visibly deducted.
+1. Laptop A starts provider mode:
 
-Judges see: peer list populate, prompts stream, balances tick live on all three screens.
+   ```bash
+   PEER_NAME=alice pear run . serve
+   ```
 
-## Architecture
+2. Laptop B starts the local HTTP proxy:
+
+   ```bash
+   PEER_NAME=bob pear run scripts/server.js
+   ```
+
+3. Laptop B sends an OpenAI or Ollama-compatible chat request to `127.0.0.1:11434`.
+
+4. The server discovers Alice, delegates the prompt through QVAC, streams tokens back to the HTTP client, spends Bob's credits, and attempts to send Alice a `creditAck`.
+
+5. Alice should receive the `creditAck` and earn credits in `data/alice.ledger.json`. The auto-consumer path does this with the discovery peer id; the HTTP server path currently needs a target-id audit.
+
+Three-peer story still fits the architecture, but requires more polish around peer selection, balances, and demo choreography.
+
+## Current Architecture
 
 ```
-┌──────────────────────── Pear app (per peer) ─────────────────────────┐
-│                                                                       │
-│  UI (Next.js)   ──►   App glue   ──►   QVAC SDK                       │
-│   - peer list           - routes        - startQVACProvider(topic)    │
-│   - chat                  UI to         - loadModel({delegate:{...}}) │
-│   - balance/log           SDK +         - completion() → tokenStream  │
-│                           ledger                                      │
-│                         - ledger                                      │
-│                         - discovery (hyperswarm side channel)         │
-└───────────────────────────────────────────────────────────────────────┘
-       │                              │
-       │ QVAC topic                   │ discovery topic (our own)
-       │ "compute-exchange-v1"        │ "compute-exchange-discovery-v1"
-       ▼                              ▼
-   QVAC delegated inference       capability announce + credit acks
-   (Hyperswarm under the hood)
+per peer
+  provider mode
+    scripts/provider.js
+    src/server/provider-runtime.js
+      -> QVAC provider topic
+      -> discovery announce
+      -> local ledger earn on creditAck
+
+  consumer/server mode
+    scripts/server.js
+      -> local HTTP API on 127.0.0.1:11434
+      -> discovery peer list
+      -> delegated QVAC load/completion
+      -> local ledger spend
+      -> discovery creditAck
+
+  CLI mode
+    cli/index.js
+    cli/commands.js
+      -> serve, daemon, ask, peers, balance, rate
 ```
 
 Two topics:
-1. **QVAC topic** — used by the SDK. Provider joins via `startQVACProvider({topic})`; consumer references it in `loadModel({delegate})`. The SDK handles the inference wire entirely.
-2. **Discovery topic** — our own thin Hyperswarm channel. Each peer announces `{publicKey, peerName, models: [{const, tier}]}` periodically. Each peer also sends `creditAck` messages here after consuming a completion.
 
-**Why a side channel for discovery:** QVAC consumer needs the provider's `publicKey` up-front. There is no `listProviders(topic)` API. So peers announce themselves on the discovery topic; the UI peer list is built from those announcements.
+1. QVAC topic: used by `startQVACProvider({ topic })` and `loadModel({ delegate })`.
+2. Discovery topic: used by our Hyperswarm side channel for `announce` and `creditAck`.
 
-**Why a side channel for credit acks:** `startQVACProvider` has no per-request callback, so the provider can't directly observe what it served. After each completion, the consumer publishes `{toPubkey, fromPubkey, model, tokens, credits}` on the discovery topic. The provider listens for messages addressed to it and updates its ledger. (Trust-based, matches the "simplest possible credits" decision.)
+Topics are derived in `src/topics.js` with SHA-256 so they are always valid 32-byte Hyperswarm topics.
 
-**Credits (simplest possible):** each peer keeps a local JSON file. On `completion()` finishing, the consumer subtracts and emits a credit ack; the provider receives the ack and adds. No global ledger. Everyone starts at 100. Cheatable, fine for hackathon.
+## Discovery and Credit Protocol
 
-**Pricing:** flat `credits = ceil(tokens / 10) * model_tier` where tier is 1 for ≤3B, 3 for 7B–13B, 5 for 20B+. Easy to tune.
+Discovery uses newline-delimited JSON frames.
 
-## QVAC API touch points (cheat sheet)
+Provider announce:
 
-Provider:
-```js
-const { publicKey } = await startQVACProvider({ topic: SHARED_TOPIC_HEX });
-// optional: firewall: { mode: "allow", publicKeys: [...] }
+```json
+{"t":"announce","peerName":"alice","models":[{"id":"LLAMA_3_2_1B_INST_Q4_0","key":"llama-1b","tier":1}],"qvacTopic":"<hex>","qvacProviderPublicKey":"<hex>"}
 ```
 
-Consumer:
-```js
-const modelId = await loadModel({
-  modelSrc: LLAMA_3_2_1B_INST_Q4_0,        // or any registry constant
-  modelType: "llm",
-  delegate: {
-    topic: SHARED_TOPIC_HEX,
-    providerPublicKey,
-    timeout: 15_000,
-    fallbackToLocal: false,                  // we don't want silent local fallback during demo
-  },
-});
+Credit acknowledgement:
 
-const response = completion({
-  modelId,
-  history: [{ role: "user", content: prompt }],
-  stream: true,
-});
-for await (const token of response.tokenStream) { /* render */ }
-const stats = await response.stats;          // → tokens for credit math
+```json
+{"t":"creditAck","to":"<discovery-peer-id>","tokens":128,"credits":13,"model":"llama-1b"}
 ```
 
-## Discovery + credit-ack protocol (our own, on the discovery topic)
+Consumers send the credit acknowledgement after a completion. The provider trusts it and updates its local ledger. This is intentionally trust-based for hackathon scope.
 
-JSON-line frames:
-```
-{"t":"announce","peerId":"<pubkey>","peerName":"alex-air","models":[{"id":"LLAMA_3_2_1B_INST_Q4_0","tier":1}]}
-{"t":"creditAck","from":"<consumerPubkey>","to":"<providerPubkey>","model":"LLAMA_3_2_1B_INST_Q4_0","tokens":128,"credits":13}
-```
+## Credit Model
 
-Announce is sent on connect and every ~10s. Ledger updates on receipt of `creditAck` matching our own pubkey.
+- Local ledger path: `data/<peerName>.ledger.json`
+- Initial balance: `100`
+- Configured price: `ceil(tokens * pricePerTokenPerTier * tier)`
+- Current `pricePerTokenPerTier`: `0.1`
+- Current model tiers:
+  - `llama-1b`: tier `1`
+  - `qwen-1.7b`: tier `3`
 
-## File layout
+## Built
 
-```
-/package.json              # pear field + deps (@qvac/sdk, hyperswarm)
-/app.js                    # Pear main entry, wires UI ↔ SDK ↔ ledger
-/core/
-  qvac.js                  # thin wrappers: startProvider, loadDelegated, runCompletion
-  discovery.js             # hyperswarm side channel: announce + creditAck
-  ledger.js                # load/save balance + append to log
-/ui/                       # use next.js
-/config.json               # initial balance, tier pricing, topic names, our model list
-```
+- QVAC wrapper in `src/core/qvac.js`
+- SHA-256 topic generation in `src/topics.js`
+- Model catalog in `src/config.js`
+- Provider runtime with pre-download and discovery advertisement
+- Discovery side channel with peer tracking, periodic announce, DHT refresh, and `creditAck`
+- Local JSON ledger with earn/spend log
+- Working HTTP proxy via `pear run scripts/server.js`
+- OpenAI-compatible streaming route: `POST /v1/chat/completions`
+- Ollama-compatible streaming route: `POST /api/chat`
+- Peer and balance routes: `GET /api/peers`, `GET /api/balance`
+- Provider CLI path: `pear run . serve`
+- CLI peer/balance inspection
+- CLI direct delegated ask
+- Local, delegated, discovery, auto-consumer, and e2e smoke scripts
+- Multi-model provider advertisement
 
-(Dropped from the previous plan: `core/swarm.js`, `core/catalog.js`, `core/protocol.js`, `core/ollama.js` — all subsumed by QVAC.)
+## Partial or Stubbed
 
-## Milestones
+- `pear run . daemon` starts the API shell but does not wire delegated chat.
+- `pear run . ask` streams delegated output but does not currently spend credits or send `creditAck`.
+- `scripts/server.js` spends credits locally but currently passes the provider QVAC public key to `sendCreditAck`; discovery connections are keyed by discovery peer id.
+- `/api/tags` returns an empty placeholder catalog.
+- `/api/generate` returns not implemented.
+- `/api/rate` returns `501`; ratings are not stored.
+- Provider selection is first matching provider in `scripts/server.js`; CLI has selection scaffolding but no real reputation or latency inputs.
+- Credits are unsigned and local only.
+- No shared ledger, fraud prevention, load balancing, queueing, or mobile build.
 
-1. **Setup.** Pear scaffold running on all 3 laptops, `@qvac/sdk` installed, small model pulled via QVAC on every laptop, large model on the beefy one. Shared repo, shared topic constants.
-2. **Single peer works.** UI loads. Local-only `loadModel` + `completion` streams tokens into the chat UI. Ledger reads/writes a local balance file.
-3. **Two peers, delegated inference.** Provider script on one laptop publishes its pubkey; consumer on the other hardcodes it and runs `loadModel({delegate})` + `completion()`. Tokens stream cross-machine. No discovery yet, no credits yet.
-4. **Discovery + credits.** Discovery side channel works: peer list populates from `announce` messages. After each completion, consumer emits `creditAck`; provider updates its ledger. UI shows balance and earn/spend log.
-5. **Three-peer demo polished.** A→B→C flow rehearsed, model pre-warmed, UI pass, fallbackToLocal disabled so failures are visible.
+## Near-term Work
 
-## Cut lines (drop in this order if behind)
+1. Unify chat handling between `scripts/server.js` and `cli daemon`.
+2. Move duplicated credit formula in `scripts/server.js` to `ledger.priceOf`.
+3. Make `cli ask` spend credits and send `creditAck`, or document it as a diagnostic-only path.
+4. Wire `/api/tags` to the configured model catalog and discovered provider availability.
+5. Fix `scripts/server.js` so `creditAck.to` targets the provider discovery peer id, or change the discovery protocol consistently to use QVAC provider public keys.
+6. Add a minimal provider selection policy that respects model, peer id, max credits, and advertised tier.
+7. Add route-level tests for `compute-exchange-api.js` without needing live QVAC.
 
-1. Tier pricing → flat `1 credit per 10 tokens`. (Loses the "heavy model costs more" story — keep if at all possible.)
-2. Discovery topic announce/list → hardcode each peer's pubkey in `config.json` for the demo. (Loses the "peers find each other" story but the rest still works.)
-3. Token streaming UI → wait for full response, then render. (Saves fiddly UI work.)
-4. Three-peer demo → two-peer demo. (Loses the "earn then spend" arc — painful but survivable.)
-5. Custom UI → terminal output on all three laptops. (Last resort.)
+## Demo Cut Lines
 
-## Stretch (only if milestone 5 finishes early)
+Drop in this order if the venue network or timing is bad:
 
-- **Signed credit acks.** Provider verifies an ed25519 signature on every `creditAck`, append-only Hypercore log per peer. Sellable as "trustless ledger" in the pitch.
-- **Reputation.** Peer card shows success rate / avg latency from prior delegations.
-- **Auto-tier.** Each peer benchmarks itself at startup (tokens/sec on a probe prompt) and advertises a tier automatically instead of hardcoding.
-- **Firewall demo.** Use `startQVACProvider({firewall: {mode: "allow", publicKeys: [...]}})` to show a peer accepting only allow-listed consumers — sells the "you control your machine" angle.
+1. Provider ratings.
+2. Multi-model demo; serve only `llama-1b`.
+3. CLI ask; use HTTP `curl` only.
+4. Three-peer earn-then-spend story; show two peers with ledger movement.
+5. Live discovery; hardcode provider public key with `scripts/consumer.js`.
 
-## Risks + mitigations
+## Risks and Mitigations
 
-- **QVAC delegated inference is new — API surface or behavior surprises.** Mitigation: do milestone 3 (cross-machine delegation) within the first ~6 hours, before building anything else on top. If the SDK has sharp edges, we want to know immediately, not at milestone 4.
-- **Hackathon wifi blocks Hyperswarm DHT / NAT traversal fails.** Mitigation: bring a travel router and put the 3 demo laptops on a personal network. QVAC docs mention `swarmRelays` config — keep that as a backup option. Test connectivity at milestone 3, not at milestone 5.
-- **QVAC model download is slow on hackathon wifi.** Mitigation: pre-pull every model we plan to use during setup (milestone 1), before the venue's network gets congested.
-- **Provider doesn't see served requests, so credit ack is consumer-driven and trust-based.** Mitigation: accept it for the hackathon, mention "signed acks" as the obvious upgrade in the pitch.
-- **`fallbackToLocal: true` would silently mask delegation failures during the demo.** Mitigation: hard-set `fallbackToLocal: false` for the demo build; surface errors loudly in the UI.
+- QVAC model download is slow on venue WiFi. Pre-download before the demo and avoid changing the model catalog late.
+- Hyperswarm DHT/NAT traversal may fail on restrictive networks. Bring a hotspot or controlled router.
+- QVAC delegated consumer/provider in one process can deadlock. Keep provider and consumer/server as separate processes.
+- Short topics can silently fail later. Always use generated 64-char topics.
+- Credit acknowledgement is consumer-driven and cheatable. Accept for hackathon demo; signed receipts are future work.
 
-## Open questions (decide before milestone 3)
+## Stretch
 
-- Topic names — `compute-exchange-v1` / `compute-exchange-discovery-v1` plain, or include a team secret so strangers don't join during demo?
-- Peer identity — display name from `config.json` mapped to QVAC pubkey, or just show truncated pubkey?
-- Multiple models per provider — does a single `startQVACProvider(topic)` call serve any model the consumer requests, or do we need one provider instance per model? (Verify in milestone 3.)
-- Max concurrent inferences a provider will accept (1 for simplicity, or queue)?
+- Signed credit receipts.
+- Append-only shared receipt logs.
+- Provider reputation from observed success and latency.
+- Load balancing across multiple matching providers.
+- Queueing and concurrency limits for providers.
+- Real model catalog endpoint compatible with Ollama clients.
+- Mobile or desktop UI once the CLI/HTTP path is stable.
