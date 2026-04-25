@@ -27,19 +27,19 @@ const commandDefinitions = [
       const { startComputeExchangeApi } = await import("../src/server/compute-exchange-api.js");
       const { Discovery } = await import("../src/core/discovery.js");
       const { Ledger } = await import("../src/core/ledger.js");
-      const { config, getModel } = await import("../src/config.js");
+      const { discoveryTopic, qvacTopic } = await import("../src/topics.js");
       const { default: os } = await import("bare-os");
       const { hostname } = os;
-      
+
       const peerName = process.env?.PEER_NAME || hostname();
       const ledger = new Ledger(`data/${peerName}.ledger.json`);
       await ledger.load();
 
       const discovery = new Discovery({
-        topicHex: config.discoveryTopic,
+        topicHex: discoveryTopic,
         peerName,
         models: [], // Daemon is a consumer by default
-        qvacTopic: config.qvacTopic,
+        qvacTopic,
       });
 
       discovery.on("creditAck", async (ack) => {
@@ -59,120 +59,6 @@ const commandDefinitions = [
         ...options,
         onGetPeers: async () => discovery.listPeers(),
         onGetBalance: async () => ({ balance: ledger.balance(), log: ledger.state.log }),
-        onChat: async (res, body, isOai = false) => {
-          try {
-            const modelKey = body.model || config.defaultModelKey;
-            const model = getModel(modelKey);
-
-            const peers = discovery.listPeers();
-            const provider = peers.find((peer) =>
-              peer.models.some((m) => m.key === model.key || m.id === model.id),
-            );
-
-            if (!provider) {
-              throw new Error(`No providers found for model "${model.key}"`);
-            }
-
-            await import("../qvac/worker.entry.mjs");
-            const {
-              loadDelegatedModel,
-              runCompletion,
-              unload,
-            } = await import("../src/core/qvac.js");
-
-            const modelId = await loadDelegatedModel({
-              modelSrc: model.src,
-              topic: provider.qvacTopic,
-              providerPublicKey: provider.qvacProviderPublicKey,
-              timeoutMs: config.requestTimeoutMs,
-            });
-
-            const history = (body.messages || []).map((m) => ({
-              role: m.role,
-              content: m.content,
-            }));
-            const response = runCompletion({ modelId, history, stream: true });
-
-            res.writeHead(200, {
-              "Content-Type": isOai ? "text/event-stream" : "application/x-ndjson",
-              "Cache-Control": "no-cache",
-              "Connection": "keep-alive",
-            });
-
-            const id = `chatcmpl-${Math.random().toString(36).slice(2)}`;
-            let totalTokens = 0;
-
-            for await (const token of response.tokenStream) {
-              totalTokens++;
-              if (isOai) {
-                const chunk = {
-                  id,
-                  object: "chat.completion.chunk",
-                  created: Math.floor(Date.now() / 1000),
-                  model: model.key,
-                  choices: [{ index: 0, delta: { content: token }, finish_reason: null }],
-                };
-                res.write(`data: ${JSON.stringify(chunk)}\n\n`);
-              } else {
-                const chunk = {
-                  model: model.key,
-                  created_at: new Date().toISOString(),
-                  message: { role: "assistant", content: token },
-                  done: false,
-                };
-                res.write(`${JSON.stringify(chunk)}\n`);
-              }
-            }
-
-            if (isOai) {
-              res.write(`data: ${JSON.stringify({
-                id,
-                object: "chat.completion.chunk",
-                created: Math.floor(Date.now() / 1000),
-                model: model.key,
-                choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-              })}\n\n`);
-              res.write("data: [DONE]\n\n");
-            } else {
-              const chunk = {
-                model: model.key,
-                created_at: new Date().toISOString(),
-                message: { role: "assistant", content: "" },
-                done: true,
-                provider: providerInfo(provider),
-              };
-              res.write(`${JSON.stringify(chunk)}\n`);
-            }
-            res.end();
-
-            const stats = await response.stats;
-            const tokens = stats?.usage?.total_tokens || totalTokens;
-            const credits = Math.ceil(tokens / 10) * model.tier;
-
-            await ledger.spend({
-              to: provider.qvacProviderPublicKey,
-              tokens,
-              credits,
-              model: model.key,
-            });
-
-            await discovery.sendCreditAck({
-              to: provider.qvacProviderPublicKey,
-              tokens,
-              credits,
-              model: model.key,
-            });
-
-            await unload({ modelId });
-          } catch (err) {
-            if (!res.headersSent) {
-              res.writeHead(500, { "Content-Type": "application/json" });
-              res.end(JSON.stringify({ error: err.message }));
-            } else {
-              res.end();
-            }
-          }
-        },
       });
       return {
         output: renderDaemonStarted(api),
@@ -214,81 +100,96 @@ const commandDefinitions = [
   {
     name: "ask",
     usage: "ask [options] <prompt>",
-    description: "Send a prompt through the local daemon.",
+    description: "Send a prompt to a discovered provider.",
     async run(args) {
       const { options, prompt } = parseAskArgs(args);
       if (!prompt) return renderAskPlan({ prompt, options });
 
+      await import("../qvac/worker.entry.mjs");
       const { default: process } = await import("bare-process");
+      const { config, getModel } = await import("../src/config.js");
+      const {
+        loadDelegatedModel,
+        runCompletion,
+        unload,
+        shutdown,
+      } = await import("../src/core/qvac.js");
+
       const stdout = process.stdout;
-      let content = "";
-      let firstLine = null;
-      let last = null;
-      let streamedHeader = false;
-
-      const streamHeader = (model) => {
-        if (streamedHeader) return;
-        stdout.write(renderAskHeader({ model: model ?? options.model }));
-        streamedHeader = true;
-      };
-
-      const response = await requestJsonLinesStream({
-        apiUrl: options.apiUrl,
-        method: "POST",
-        path: "/api/chat",
-        body: {
-          model: options.model ?? undefined,
-          messages: [{ role: "user", content: prompt }],
-          stream: true,
-          options: {
-            peer: options.peer,
-            max_credits: options.maxCredits,
-            strategy: options.strategy,
-          },
-        },
-        onLine(line) {
-          firstLine ??= line;
-          last = line;
-
-          if (line.error) return;
-          streamHeader(line.model);
-
-          const chunk = line.message?.content ?? line.response ?? "";
-          if (chunk) {
-            content += chunk;
-            stdout.write(chunk);
-          }
-        },
+      const model = getModel(options.model ?? config.defaultModelKey);
+      const peersPayload = await requestJson({ apiUrl: options.apiUrl, path: "/api/peers" });
+      const provider = selectProvider({
+        peers: peersPayload.peers ?? [],
+        model,
+        options,
       });
 
-      last ??= response.lines.at(-1) ?? response.json;
-
-      const error = response.ok ? last?.error : response.error;
-      if (error) {
-        if (streamedHeader) stdout.write("\n");
+      if (!provider) {
         return renderAskResult({
           prompt,
-          model: last?.model ?? firstLine?.model ?? options.model,
-          content,
-          provider: last?.provider,
-          error,
+          model: model.key,
+          error: `No providers found for model "${model.key}".`,
         });
       }
 
-      streamHeader(last?.model);
-      if (!content) stdout.write("(empty response)");
+      let content = "";
+      let streamedHeader = false;
+      let modelId = null;
 
-      const details = renderAskDetails({
-        prompt,
-        provider: last?.provider,
-      });
-      if (details) stdout.write(`\n${details}`);
-      stdout.write("\n");
-
-      return {
-        output: "",
-        streamed: true,
+      const streamHeader = () => {
+        if (streamedHeader) return;
+        stdout.write(renderAskHeader({ model: model.key }));
+        streamedHeader = true;
       };
+
+      try {
+        modelId = await loadDelegatedModel({
+          modelSrc: model.src,
+          topic: provider.qvacTopic,
+          providerPublicKey: provider.qvacProviderPublicKey,
+          timeoutMs: config.requestTimeoutMs,
+        });
+
+        const response = runCompletion({
+          modelId,
+          history: [{ role: "user", content: prompt }],
+          stream: true,
+        });
+
+        streamHeader();
+        for await (const token of response.tokenStream) {
+          content += token;
+          stdout.write(token);
+        }
+        if (response.stats?.catch) await response.stats.catch(() => null);
+
+        if (!content) stdout.write("(empty response)");
+        const details = renderAskDetails({
+          prompt,
+          provider: providerInfo(provider),
+        });
+        if (details) stdout.write(`\n${details}`);
+        stdout.write("\n");
+
+        return {
+          output: "",
+          streamed: true,
+        };
+      } catch (err) {
+        if (streamedHeader) stdout.write("\n");
+        return renderAskResult({
+          prompt,
+          model: model.key,
+          content,
+          provider: providerInfo(provider),
+          error: err?.message ?? String(err),
+        });
+      } finally {
+        if (modelId) {
+          await unload({ modelId }).catch(() => {});
+        }
+        await shutdown().catch(() => {});
+      }
     },
   },
   {
@@ -726,6 +627,34 @@ function parseJson(text, path) {
   } catch (err) {
     throw new Error(`Invalid JSON response from ${path}: ${err.message}`);
   }
+}
+
+function selectProvider({ peers, model, options }) {
+  const eligible = peers.filter((peer) => {
+    if (!peer.qvacProviderPublicKey || !peer.qvacTopic) return false;
+    if (options.peer && !matchesPeer(peer, options.peer)) return false;
+    return peer.models?.some((m) => m.key === model.key || m.id === model.id);
+  });
+
+  if (eligible.length === 0) return null;
+
+  if (options.strategy === "rated") {
+    return [...eligible].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))[0];
+  }
+
+  if (options.strategy === "fastest") {
+    return [...eligible].sort((a, b) => (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0))[0];
+  }
+
+  return eligible[0];
+}
+
+function matchesPeer(peer, requestedPeer) {
+  return [
+    peer.peerId,
+    peer.qvacProviderPublicKey,
+    peer.peerName,
+  ].some((value) => value && value.startsWith(requestedPeer));
 }
 
 function providerInfo(provider) {

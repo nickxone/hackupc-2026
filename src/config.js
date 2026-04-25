@@ -1,12 +1,9 @@
-import crypto from "bare-crypto";
-const { createHash } = crypto;
 import {
   LLAMA_3_2_1B_INST_Q4_0,
   QWEN3_1_7B_INST_Q4,
 } from "@qvac/sdk";
-
-const topicFromName = (name) =>
-  createHash("sha256").update(name).digest("hex");
+import { ledgerConfig } from "./ledger-config.js";
+import { discoveryTopic, qvacTopic } from "./topics.js";
 
 const models = {
   "llama-1b": {
@@ -28,17 +25,14 @@ const models = {
 const defaultModelKey = "llama-1b";
 
 export const config = {
-  qvacTopic: topicFromName("compute-exchange-qvac-v1"),
-  discoveryTopic: topicFromName("compute-exchange-discovery-v1"),
+  qvacTopic,
+  discoveryTopic,
 
   models,
   defaultModelKey,
   defaultModel: models[defaultModelKey],
 
-  ledger: {
-    initialBalance: 100,
-    pricePerTokenPerTier: 0.1,
-  },
+  ledger: ledgerConfig,
 
   requestTimeoutMs: 60_000,
 };

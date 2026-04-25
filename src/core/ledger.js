@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir } from "bare-fs/promises";
 import { dirname } from "bare-path";
-import { config } from "../config.js";
+import { ledgerConfig } from "../ledger-config.js";
 
 export class Ledger {
   constructor(path) {
@@ -15,7 +15,7 @@ export class Ledger {
     } catch (err) {
       if (err.code !== "ENOENT") throw err;
       this.state = {
-        balance: config.ledger.initialBalance,
+        balance: ledgerConfig.initialBalance,
         log: [],
       };
       await this.#persist();
@@ -54,7 +54,7 @@ export class Ledger {
   }
 
   priceOf({ tokens, tier }) {
-    return Math.ceil(tokens * config.ledger.pricePerTokenPerTier * tier);
+    return Math.ceil(tokens * ledgerConfig.pricePerTokenPerTier * tier);
   }
 
   async #persist() {

@@ -58,7 +58,8 @@ export function renderDaemonStarted({ url, peerScanMs }) {
     "- GET  /api/balance",
     "- POST /api/rate",
     "",
-    "Generation, discovery, credits, and ratings currently return placeholder responses.",
+    "Generation routes currently return placeholder responses.",
+    "Use `pear run . serve` to start the QVAC provider runtime.",
     "Press Ctrl+C to stop.",
   ].join("\n");
 }
