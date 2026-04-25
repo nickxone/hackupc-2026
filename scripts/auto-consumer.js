@@ -1,3 +1,4 @@
+import process from "bare-process";
 import {
   loadDelegatedModel,
   runCompletion,

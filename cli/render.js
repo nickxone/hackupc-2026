@@ -63,6 +63,32 @@ export function renderDaemonStarted({ url, peerScanMs }) {
   ].join("\n");
 }
 
+export function renderProviderStarted({
+  peerName,
+  peerId,
+  publicKey,
+  topic,
+  servedModels,
+}) {
+  const lines = [
+    renderTitle("Serve"),
+    "",
+    "Status: ready",
+    `Peer: ${peerName} (${shortId(peerId)})`,
+    `QVAC topic: ${shortId(topic)}`,
+    `Provider public key: ${shortId(publicKey)}`,
+    "",
+    "Serving models:",
+  ];
+
+  for (const model of servedModels) {
+    lines.push(`- ${model.key} tier=${model.tier} id=${model.id}`);
+  }
+
+  lines.push("", "Provider ready. Press Ctrl+C to stop.");
+  return lines.join("\n");
+}
+
 export function renderCommandResult({
   title,
   status = "pending",
@@ -147,6 +173,67 @@ export function renderPeers({ peers, peerId, waitMs, planned = false }) {
     }
 
     lines.push(`  last seen: ${formatTime(peer.lastSeenAt)}`);
+  }
+
+  return lines.join("\n");
+}
+
+export function renderBalance({ balance, log = [] }) {
+  const lines = [
+    renderTitle("Balance"),
+    "",
+    "Status: ready",
+    `Credits: ${balance ?? "unknown"}`,
+    "",
+  ];
+
+  if (log.length === 0) {
+    lines.push("No ledger events yet.");
+    return lines.join("\n");
+  }
+
+  lines.push("Recent events:");
+  for (const event of log.slice(-10).reverse()) {
+    const type = event.type ?? "event";
+    const credits = event.credits == null ? "unknown credits" : `${event.credits} credits`;
+    const model = event.model ? ` model=${event.model}` : "";
+    const peer = event.to ?? event.from ?? event.provider ?? "";
+    const peerPart = peer ? ` peer=${shortId(peer)}` : "";
+    lines.push(`- ${formatTime(event.at ?? event.createdAt ?? event.time)} ${type}: ${credits}${model}${peerPart}`);
+  }
+
+  return lines.join("\n");
+}
+
+export function renderRateResult({ accepted, provider, score, error, p2p }) {
+  return [
+    renderTitle("Rate"),
+    "",
+    `Status: ${accepted ? "ready" : "blocked"}`,
+    `Provider: ${provider ?? "unknown"}`,
+    `Score: ${score ?? "unknown"}`,
+    "",
+    error ?? p2p?.message ?? "Rating submitted.",
+  ].join("\n");
+}
+
+export function renderAskResult({ prompt, model, content, error }) {
+  const lines = [
+    renderTitle("Ask"),
+    "",
+    `Status: ${error ? "blocked" : "ready"}`,
+    `Model: ${model ?? "default"}`,
+    "",
+  ];
+
+  if (error) {
+    lines.push(error);
+  } else {
+    lines.push(content || "(empty response)");
+  }
+
+  if (prompt) {
+    lines.push("", `Prompt: ${prompt}`);
   }
 
   return lines.join("\n");

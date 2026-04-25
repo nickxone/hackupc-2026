@@ -1,19 +1,17 @@
 import {
+  renderAskResult,
   renderAskPlan,
+  renderBalance,
   renderCommandResult,
   renderDaemonStarted,
   renderPeers,
+  renderProviderStarted,
+  renderRateResult,
   renderUsage,
 } from "./render.js";
-import { startComputeExchangeApi } from "../src/server/compute-exchange-api.js";
-import { Discovery } from "../src/core/discovery.js";
-import { Ledger } from "../src/core/ledger.js";
-import { loadDelegatedModel, runCompletion, unload } from "../src/core/qvac.js";
-import { config, getModel } from "../src/config.js";
-import os from "bare-os";
-const { hostname } = os;
 
 const DEFAULT_PEER_SCAN_MS = 3_000;
+const DEFAULT_API_URL = "http://127.0.0.1:11434";
 const ASK_STRATEGIES = new Set(["cheapest", "best", "fastest", "rated"]);
 
 const commandDefinitions = [
@@ -23,8 +21,15 @@ const commandDefinitions = [
     description: "Start the local Compute Exchange API.",
     async run(args) {
       const options = parseDaemonArgs(args);
+      const { default: process } = await import("bare-process");
+      const { startComputeExchangeApi } = await import("../src/server/compute-exchange-api.js");
+      const { Discovery } = await import("../src/core/discovery.js");
+      const { Ledger } = await import("../src/core/ledger.js");
+      const { config, getModel } = await import("../src/config.js");
+      const { default: os } = await import("bare-os");
+      const { hostname } = os;
       
-      const peerName = (globalThis.process?.env?.PEER_NAME) || hostname();
+      const peerName = process.env?.PEER_NAME || hostname();
       const ledger = new Ledger(`data/${peerName}.ledger.json`);
       await ledger.load();
 
@@ -39,9 +44,18 @@ const commandDefinitions = [
         await ledger.earn(ack);
       });
 
+      let api;
+      let shutdownQvac = null;
+      setupDaemonCleanup({
+        getApi: () => api,
+        discovery,
+        getShutdown: () => shutdownQvac,
+        process,
+      });
+
       await discovery.start();
 
-      const api = await startComputeExchangeApi({
+      api = await startComputeExchangeApi({
         ...options,
         onGetPeers: async () => discovery.listPeers(),
         onGetBalance: async () => ({ balance: ledger.balance(), log: ledger.state.log }),
@@ -56,6 +70,15 @@ const commandDefinitions = [
             if (!provider) {
               throw new Error(`No providers found for model "${model.key}"`);
             }
+
+            await import("../qvac/worker.entry.mjs");
+            const {
+              loadDelegatedModel,
+              runCompletion,
+              shutdown,
+              unload,
+            } = await import("../src/core/qvac.js");
+            shutdownQvac = shutdown;
 
             const modelId = await loadDelegatedModel({
               modelSrc: model.src,
@@ -137,98 +160,124 @@ const commandDefinitions = [
   },
   {
     name: "serve",
-    usage: "serve",
-    description: "Show the provider mode contract.",
-    run() {
-      return renderCommandResult({
-        title: "Serve",
-        status: "pending",
-        summary: "Provider mode CLI shell is ready, but not connected yet.",
-        bullets: [
-          "Start the local QVAC provider.",
-          "Advertise served models over discovery.",
-          "Replicate credit and rating state through Autobase.",
-          "Keep running until interrupted.",
-        ],
-        next: [
-          "Wire to `src/core/qvac.js` for provider startup.",
-          "Wire to `src/core/discovery.js` for peer announcements.",
-          "Wire to future Autobase credit and rating modules.",
-        ],
+    usage: "serve [--models keys] [--peer-name name] [--topic hex] [--skip-download]",
+    description: "Start provider mode and advertise served models.",
+    async run(args) {
+      await import("../qvac/worker.entry.mjs");
+      const { default: process } = await import("bare-process");
+      const { config } = await import("../src/config.js");
+      const { default: os } = await import("bare-os");
+      const { startProviderRuntime } = await import("../src/server/provider-runtime.js");
+      const options = parseServeArgs(args, {
+        defaultTopic: config.qvacTopic,
+        defaultPeerName: process.env.PEER_NAME || os.hostname(),
+        defaultModelKeys: Object.keys(config.models).join(","),
+        env: process.env,
       });
+      const provider = await startProviderRuntime({
+        topic: options.topic,
+        peerName: options.peerName,
+        modelKeys: options.modelKeys,
+        predownload: options.predownload,
+      });
+
+      setupProviderCleanup({ provider, process });
+
+      return {
+        output: renderProviderStarted(provider),
+        keepAlive: true,
+      };
     },
   },
   {
     name: "ask",
     usage: "ask [options] <prompt>",
-    description: "Show the prompt request contract.",
-    run(args) {
+    description: "Send a prompt through the local daemon.",
+    async run(args) {
       const { options, prompt } = parseAskArgs(args);
-      return renderAskPlan({ prompt, options });
+      if (!prompt) return renderAskPlan({ prompt, options });
+
+      const response = await requestJsonLines({
+        apiUrl: options.apiUrl,
+        method: "POST",
+        path: "/api/chat",
+        body: {
+          model: options.model ?? undefined,
+          messages: [{ role: "user", content: prompt }],
+          stream: true,
+          options: {
+            peer: options.peer,
+            max_credits: options.maxCredits,
+            strategy: options.strategy,
+          },
+        },
+      });
+
+      const content = response.lines
+        .map((line) => line.message?.content ?? line.response ?? "")
+        .join("");
+      const last = response.lines.at(-1) ?? response.json;
+
+      return renderAskResult({
+        prompt,
+        model: last?.model ?? options.model,
+        content,
+        error: response.ok ? last?.error : response.error,
+      });
     },
   },
   {
     name: "peers",
-    usage: "peers [--wait ms]",
-    description: "Show the peer listing contract.",
-    run(args) {
-      const waitMs = parseWaitMs(args);
+    usage: "peers [--wait ms] [--api-url url]",
+    description: "List peers from the local daemon.",
+    async run(args) {
+      const { waitMs, apiUrl } = parsePeersArgs(args);
+      const payload = await requestJson({ apiUrl, path: "/api/peers" });
       return renderPeers({
-        peers: [],
-        peerId: null,
-        waitMs,
-        planned: true,
+        peers: payload.peers ?? [],
+        peerId: payload.peerId ?? null,
+        waitMs: payload.waitMs ?? waitMs,
       });
     },
   },
   {
     name: "balance",
-    usage: "balance",
-    description: "Show the balance contract.",
-    run() {
-      return renderCommandResult({
-        title: "Balance",
-        status: "pending",
-        summary: "Balance command contract is defined, but storage is not wired.",
-        bullets: [
-          "Show current credit balance.",
-          "Show recent earn and spend events.",
-          "Show pending or unreplicated receipts.",
-        ],
-        next: [
-          "Read local JSON ledger during development.",
-          "Switch to Autobase-derived balances for shared state.",
-        ],
-      });
+    usage: "balance [--api-url url]",
+    description: "Show daemon ledger balance.",
+    async run(args) {
+      const { apiUrl } = parseApiOnlyArgs(args, "balance");
+      const payload = await requestJson({ apiUrl, path: "/api/balance" });
+      return renderBalance(payload);
     },
   },
   {
     name: "rate",
-    usage: "rate <provider-id> <1-5>",
-    description: "Show the provider rating contract.",
-    run(args) {
-      const [providerId, scoreRaw] = args;
+    usage: "rate [--api-url url] <provider-id> <1-5>",
+    description: "Rate a provider through the local daemon.",
+    async run(args) {
+      const { apiUrl, rest } = parseApiOnlyArgs(args, "rate");
+      const [providerId, scoreRaw] = rest;
       const score = Number(scoreRaw);
       const validScore = Number.isInteger(score) && score >= 1 && score <= 5;
 
-      return renderCommandResult({
-        title: "Rate",
-        status: providerId && validScore ? "pending" : "blocked",
-        summary:
-          providerId && validScore
-            ? `Rating captured: ${providerId} -> ${score}/5`
-            : "Usage requires a provider id and an integer score from 1 to 5.",
-        bullets: [
-          "Validate the provider id.",
-          "Attach rating to a completed request when available.",
-          "Write a signed rating event.",
-          "Update provider reputation from replicated events.",
-        ],
-        next: [
-          "Wire validation to discovery or Autobase provider records.",
-          "Persist rating event through Autobase.",
-        ],
+      if (!providerId || !validScore) {
+        return renderRateResult({
+          accepted: false,
+          provider: providerId,
+          score: Number.isFinite(score) ? score : null,
+          error: "Usage requires a provider id and an integer score from 1 to 5.",
+        });
+      }
+
+      const payload = await requestJson({
+        apiUrl,
+        method: "POST",
+        path: "/api/rate",
+        body: { provider: providerId, score },
+        allowError: true,
       });
+
+      return renderRateResult(payload);
     },
   },
 ];
@@ -275,15 +324,24 @@ export async function runCommand(argv) {
   };
 }
 
-function parseWaitMs(args) {
-  const index = args.indexOf("--wait");
-  if (index === -1) return DEFAULT_PEER_SCAN_MS;
+function parsePeersArgs(args) {
+  const options = {
+    waitMs: DEFAULT_PEER_SCAN_MS,
+    apiUrl: DEFAULT_API_URL,
+  };
 
-  const waitMs = Number(args[index + 1]);
-  if (!Number.isInteger(waitMs) || waitMs < 0) {
-    throw new Error("`peers --wait` expects a non-negative integer in milliseconds");
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--wait") {
+      options.waitMs = readIntegerOption(args, ++i, "--wait");
+    } else if (arg === "--api-url") {
+      options.apiUrl = readOptionValue(args, ++i, "--api-url");
+    } else {
+      throw new Error(`Unknown peers option: ${arg}`);
+    }
   }
-  return waitMs;
+
+  return options;
 }
 
 function parseAskArgs(args) {
@@ -292,6 +350,7 @@ function parseAskArgs(args) {
     model: null,
     maxCredits: null,
     strategy: "cheapest",
+    apiUrl: DEFAULT_API_URL,
   };
   const rest = [];
 
@@ -315,6 +374,8 @@ function parseAskArgs(args) {
         );
       }
       options.strategy = value;
+    } else if (arg === "--api-url") {
+      options.apiUrl = readOptionValue(args, ++i, "--api-url");
     } else if (arg.startsWith("--")) {
       throw new Error(`Unknown ask option: ${arg}`);
     } else {
@@ -323,6 +384,26 @@ function parseAskArgs(args) {
   }
 
   return { options, prompt: rest.join(" ").trim() };
+}
+
+function parseApiOnlyArgs(args, commandName) {
+  const options = {
+    apiUrl: DEFAULT_API_URL,
+    rest: [],
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--api-url") {
+      options.apiUrl = readOptionValue(args, ++i, "--api-url");
+    } else if (arg.startsWith("--")) {
+      throw new Error(`Unknown ${commandName} option: ${arg}`);
+    } else {
+      options.rest.push(arg);
+    }
+  }
+
+  return options;
 }
 
 function parseDaemonArgs(args) {
@@ -348,6 +429,38 @@ function parseDaemonArgs(args) {
   return options;
 }
 
+function parseServeArgs(args, { defaultTopic, defaultPeerName, defaultModelKeys, env = {} }) {
+  const options = {
+    topic: env.QVAC_TOPIC || defaultTopic,
+    peerName: env.PEER_NAME || defaultPeerName,
+    modelKeys: (env.MODELS || defaultModelKeys)
+      .split(",")
+      .map((key) => key.trim())
+      .filter(Boolean),
+    predownload: true,
+  };
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--topic") {
+      options.topic = readOptionValue(args, ++i, "--topic");
+    } else if (arg === "--peer-name") {
+      options.peerName = readOptionValue(args, ++i, "--peer-name");
+    } else if (arg === "--models") {
+      options.modelKeys = readOptionValue(args, ++i, "--models")
+        .split(",")
+        .map((key) => key.trim())
+        .filter(Boolean);
+    } else if (arg === "--skip-download") {
+      options.predownload = false;
+    } else {
+      throw new Error(`Unknown serve option: ${arg}`);
+    }
+  }
+
+  return options;
+}
+
 function readOptionValue(args, index, flag) {
   const value = args[index];
   if (!value || value.startsWith("--")) {
@@ -362,4 +475,156 @@ function readIntegerOption(args, index, flag) {
     throw new Error(`${flag} expects a non-negative integer`);
   }
   return value;
+}
+
+async function requestJson({
+  apiUrl = DEFAULT_API_URL,
+  method = "GET",
+  path,
+  body,
+  allowError = false,
+}) {
+  const response = await requestText({ apiUrl, method, path, body });
+  const payload = parseJson(response.text, path);
+  if (!allowError && response.statusCode >= 400) {
+    throw new Error(payload.error ?? `HTTP ${response.statusCode} from ${path}`);
+  }
+  return payload;
+}
+
+async function requestJsonLines({ apiUrl = DEFAULT_API_URL, method = "GET", path, body }) {
+  const response = await requestText({ apiUrl, method, path, body });
+  const text = response.text.trim();
+  const lines = text
+    ? text.split(/\r?\n/).filter(Boolean).map((line) => parseJson(line, path))
+    : [];
+
+  if (response.statusCode >= 400) {
+    const last = lines.at(-1);
+    return {
+      ok: false,
+      lines,
+      error: last?.error ?? `HTTP ${response.statusCode} from ${path}`,
+    };
+  }
+
+  return { ok: true, lines };
+}
+
+async function requestText({ apiUrl, method, path, body }) {
+  const { default: http } = await import("bare-http1");
+  const url = new URL(path, apiUrl);
+  const payload = body == null ? null : JSON.stringify(body);
+
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        method,
+        hostname: url.hostname,
+        host: url.hostname,
+        port: Number(url.port || 80),
+        path: `${url.pathname}${url.search}`,
+        headers: payload
+          ? {
+              "content-type": "application/json",
+              "content-length": String(payload.length),
+            }
+          : undefined,
+      },
+      (res) => {
+        let text = "";
+        res.on("data", (chunk) => {
+          text += chunk.toString();
+        });
+        res.on("end", () => {
+          resolve({ statusCode: res.statusCode ?? 0, text });
+        });
+      },
+    );
+
+    req.on("error", (err) => {
+      reject(new Error(`Unable to reach daemon at ${apiUrl}: ${err.message}`));
+    });
+
+    if (payload) req.write(payload);
+    req.end();
+  });
+}
+
+function parseJson(text, path) {
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new Error(`Invalid JSON response from ${path}: ${err.message}`);
+  }
+}
+
+function setupDaemonCleanup({ getApi, discovery, getShutdown, process }) {
+  let cleaningUp = false;
+
+  const cleanup = async (signal) => {
+    if (cleaningUp) {
+      process.exit(1);
+      return;
+    }
+
+    cleaningUp = true;
+    console.log(`\nReceived ${signal}; shutting down daemon...`);
+
+    const errors = [];
+    await runCleanupStep("HTTP API", () => getApi()?.stop?.(), errors);
+    await runCleanupStep("discovery", () => discovery.stop(), errors);
+    const shutdown = getShutdown?.();
+    if (shutdown) {
+      await runCleanupStep("QVAC SDK", () => shutdown(), errors);
+    }
+
+    if (errors.length > 0) {
+      for (const err of errors) {
+        console.error(`[daemon] Cleanup failed for ${err.label}: ${err.message}`);
+      }
+      process.exit(1);
+      return;
+    }
+
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  };
+
+  process.on("SIGINT", () => cleanup("SIGINT"));
+  process.on("SIGTERM", () => cleanup("SIGTERM"));
+}
+
+function setupProviderCleanup({ provider, process }) {
+  let cleaningUp = false;
+
+  const cleanup = async (signal) => {
+    if (cleaningUp) {
+      process.exit(1);
+      return;
+    }
+
+    cleaningUp = true;
+    console.log(`\nReceived ${signal}; shutting down provider...`);
+
+    try {
+      await provider.stop();
+    } catch (err) {
+      console.error(`[serve] Cleanup failed: ${err?.message ?? String(err)}`);
+      process.exit(1);
+      return;
+    }
+
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  };
+
+  process.on("SIGINT", () => cleanup("SIGINT"));
+  process.on("SIGTERM", () => cleanup("SIGTERM"));
+}
+
+async function runCleanupStep(label, step, errors) {
+  try {
+    await step();
+  } catch (err) {
+    errors.push({ label, message: err?.message ?? String(err) });
+  }
 }

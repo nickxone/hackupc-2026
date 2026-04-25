@@ -29,6 +29,7 @@ export async function startComputeExchangeApi({
 
   const address = server.address();
   const actualPort = typeof address === "object" ? address.port : port;
+  let stopped = false;
 
   return {
     server,
@@ -36,6 +37,16 @@ export async function startComputeExchangeApi({
     port: actualPort,
     url: `http://${host}:${actualPort}`,
     peerScanMs,
+    async stop() {
+      if (stopped) return;
+      stopped = true;
+      await new Promise((resolve, reject) => {
+        server.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    },
   };
 }
 

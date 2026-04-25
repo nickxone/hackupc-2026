@@ -1,3 +1,4 @@
+import process from "bare-process";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
