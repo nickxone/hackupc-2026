@@ -12,33 +12,28 @@ P2P LLM compute exchange prototype for HackUPC 2026.
 - Install dependencies:
   - `npm install`
 - Install/bootstrap Pear if `pear` is not on your `PATH`:
-  - `npm install -g pear`
-  - `pear`
-- Run the Pear CLI shell:
-  - `pear run . help`
-- Start the local Compute Exchange API:
-  - `pear run . daemon`
-  - `curl http://127.0.0.1:11434/api/version`
-- List providers with selection info:
-  - `pear run . peers --wait 5000`
-- Ask with an automatic budget-aware provider pick:
-  - `pear run . ask --max-credits 20 "Explain vector databases"`
-- Ask a specific peer within a budget:
-  - `pear run . ask --peer <peer-id> --max-credits 20 "Explain vector databases"`
-- Run the same CLI through Node during development:
-  - `npm run cli -- help`
-- Run a local model smoke test:
-  - `npm run local`
-- Run a provider:
+  - `npm install -D pear`
+  - `npm run pear -- run pear://runtime`
+- Start a Provider (Terminal 1):
   - `npm run provider`
-- Run a manual consumer with the provider key printed by the provider:
-  - `node scripts/consumer.js <provider-public-key> "Your prompt"`
-- Run auto-discovery consumer:
-  - `npm run auto-consumer -- "Your prompt"`
-- Run discovery-only peer test:
-  - `npm run discovery`
-- Run delegated two-process smoke test:
+  - This peer will download the models and wait to serve requests.
+- Start the API Daemon (Terminal 2):
+  - `npm run pear -- daemon`
+  - This starts the local Pear daemon, listening on `http://127.0.0.1:11434`.
+- Send an Inference Request (Terminal 3):
+  - Use standard OpenAI formatting to query the decentralized network:
+  ```bash
+  curl -X POST http://127.0.0.1:11434/v1/chat/completions \
+       -H "Content-Type: application/json" \
+       -d '{"model": "llama-1b", "messages": [{"role": "user", "content": "Say hello in 5 words."}]}'
+  ```
+- Other CLI Commands (via Pear):
+  - List providers: `npm run pear -- peers --wait 5000`
+  - Show CLI help: `npm run pear -- help`
+- Run the legacy tests:
+  - `npm run local`
   - `npm run delegated`
+  - `npm run e2e`
 
 ## Repository Map
 
@@ -82,9 +77,9 @@ P2P LLM compute exchange prototype for HackUPC 2026.
 
 - `src/server/compute-exchange-api.js`
   - Local HTTP API surface for developer integrations.
-  - Exposes compatibility routes: `/api/version`, `/api/tags`, `/api/generate`, and `/api/chat`.
-  - Exposes project routes: `/api/peers`, `/api/balance`, and `/api/rate`.
-  - Returns placeholder responses until discovery, QVAC, credits, and ratings are wired.
+  - Acts as an OpenAI-compatible proxy (`/v1/chat/completions`) and Ollama-compatible proxy (`/api/chat`).
+  - Seamlessly bridges standard HTTP requests to the P2P QVAC network under the hood.
+  - Exposes project routes: `/api/peers` and `/api/balance`.
 
 - `cli/render.js`
   - Shared terminal output formatting.
