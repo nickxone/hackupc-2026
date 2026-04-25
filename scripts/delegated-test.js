@@ -44,9 +44,9 @@ function waitForPublicKey(child) {
   });
 }
 
-function runConsumer(topic, pubkey) {
+function runConsumer(pubkey) {
   return new Promise((resolve, reject) => {
-    const child = spawn("node", [consumerScript, topic, pubkey], {
+    const child = spawn("node", [consumerScript, pubkey], {
       stdio: "inherit",
     });
     child.on("error", reject);
@@ -64,7 +64,7 @@ try {
   const pubkey = await waitForPublicKey(provider);
   console.log(`\nProvider pubkey captured: ${pubkey.slice(0, 12)}...`);
   console.log("Running consumer in a separate process...\n");
-  await runConsumer(topic, pubkey);
+  await runConsumer(pubkey);
   console.log("\nDelegated inference test: PASS");
 } catch (err) {
   console.error("\nDelegated inference test: FAIL —", err.message);

@@ -11,7 +11,7 @@ HackUPC 2026 entry: a serverless, peer-to-peer "compute exchange" where peers tr
 - `npm run local` — load a model locally and run a single completion. Validates QVAC + native llama.cpp on this machine.
 - `npm run delegated` — runs the full two-process delegated inference loop: spawns `scripts/provider.js` as a child, parses its public key from stdout, then spawns `scripts/consumer.js` against it. This is our core-primitive smoke test.
 - `node scripts/provider.js [topic-hex]` — run a standalone provider (e.g. on another machine). Prints `PROVIDER_PUBLIC_KEY=<hex>`.
-- `node scripts/consumer.js <topic-hex> <provider-pubkey> [prompt]` — run a standalone consumer against a known provider.
+- `node scripts/consumer.js <provider-pubkey> [prompt]` — run a standalone consumer against a known provider. The topic defaults to `config.qvacTopic`; override it with `QVAC_TOPIC=<topic-hex>`.
 
 First run of `local` downloads a ~773 MB model to QVAC's cache; subsequent runs use it.
 
