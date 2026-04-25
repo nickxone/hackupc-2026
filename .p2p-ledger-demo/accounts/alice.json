@@ -1,7 +1,0 @@
-{
-  "name": "alice",
-  "accountId": "86d387a61af121e568da480b1940dad930d4bf06b4381ec8eeb8229900fd188b",
-  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA5MheWf/6SfzhX5GMEd6m03zGXiFn0AJka2n0QNpIZ6E=\n-----END PUBLIC KEY-----\n",
-  "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIFunz7F0+Pb/3zMdNeCpyfGwXSw2McKdrDj6s8mbRSnP\n-----END PRIVATE KEY-----\n",
-  "peerDir": "/home/faruk/VSCode/hackupc_2026/qvac-test/hackupc-2026/.p2p-ledger-demo/peers/alice"
-}

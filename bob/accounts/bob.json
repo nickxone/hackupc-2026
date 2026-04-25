@@ -1,7 +1,0 @@
-{
-  "name": "bob",
-  "accountId": "5c4447c1bdbd10ad8750036dc7cfaf665f18dbbc4bfd8816ae6e8be6c5869339",
-  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAMxnqowbUA0sueg60m7kGgTIMuZJDS/j7401VFMaa5Hg=\n-----END PUBLIC KEY-----\n",
-  "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIF2Xu2oUT4AWcv/uP8MKXGIu1wFlD8JLAipgEuYK/eLI\n-----END PRIVATE KEY-----\n",
-  "peerDir": "/home/faruk/VSCode/hackupc_2026/qvac-test/hackupc-2026/bob/peers/bob"
-}

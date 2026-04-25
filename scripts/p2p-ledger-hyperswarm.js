@@ -39,6 +39,7 @@ async function main() {
   }, 3000)
 
   swarm.on('connection', conn => {
+    console.log('[swarm] connected')
     app.replicateNode(peerNode, conn)
     conn.on('error', err => {
       console.error(`[conn error] ${err.message || err}`)
@@ -46,6 +47,7 @@ async function main() {
   })
 
   eventSwarm.on('connection', conn => {
+    console.log('[events] connected')
     eventConnections.add(conn)
     sendEvent(conn, initialAnnouncement)
 
