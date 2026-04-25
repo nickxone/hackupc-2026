@@ -1,5 +1,6 @@
 const crypto = require('crypto')
 const Hyperbee = require('hyperbee')
+const { getInitialCreditAmount } = require('./config')
 
 function openLedgerView(store) {
   return new Hyperbee(store.get('shared-ledger'), {
@@ -8,7 +9,7 @@ function openLedgerView(store) {
   })
 }
 
-function createApply({ authorityPublicKeyPem }) {
+function createApply() {
   return async function apply(nodes, view, host) {
     for (const node of nodes) {
       if (!node || node.value == null) continue
@@ -17,6 +18,7 @@ function createApply({ authorityPublicKeyPem }) {
 
       if (value.type === 'register-account') {
         if (!isValidRegistration(value)) continue
+        await host.addWriter(node.from.key, { indexer: true })
 
         const existing = await view.get(`account:${value.accountId}`)
         if (!existing) {
@@ -28,24 +30,16 @@ function createApply({ authorityPublicKeyPem }) {
             createdAt: value.createdAt,
             signature: value.signature
           })
-        }
 
-        continue
-      }
-
-      if (value.type === 'grant') {
-        if (!isValidGrant(value, authorityPublicKeyPem)) continue
-
-        const existing = await view.get(`entry:${value.txId}`)
-        if (!existing) {
-          await view.put(`entry:${value.txId}`, {
-            type: 'grant',
-            txId: value.txId,
-            toAccount: value.toAccount,
-            amount: value.amount,
+          const initialTxId = initialCreditTxId(value.accountId)
+          await view.put(`entry:${initialTxId}`, {
+            type: 'initial-credit',
+            txId: initialTxId,
+            toAccount: value.accountId,
+            amount: getInitialCreditAmount(),
             createdAt: value.createdAt,
             signatures: {
-              authority: value.authoritySignature
+              account: value.signature
             }
           })
         }
@@ -54,11 +48,19 @@ function createApply({ authorityPublicKeyPem }) {
       }
 
       if (value.type === 'transfer-proposal') {
-        const sender = await view.get(`account:${value.fromAccount}`)
-        if (!sender) continue
-        if (!isValidProposal(value, sender.value.publicKeyPem)) continue
+        let sender = await view.get(`account:${value.fromAccount}`)
+        const senderPublicKeyPem = sender ? sender.value.publicKeyPem : value.senderPublicKeyPem
+        if (!senderPublicKeyPem) continue
+        if (!isValidProposal(value, senderPublicKeyPem)) continue
 
         await host.ackWriter(node.from.key)
+        await ensureInlineAccount(view, {
+          accountId: value.fromAccount,
+          name: value.senderName || shortName(value.fromAccount),
+          publicKeyPem: senderPublicKeyPem,
+          writerKey: value.senderWriterKey || node.from.key.toString('hex'),
+          createdAt: value.createdAt
+        })
 
         const existing = await view.get(`proposal:${value.txId}`)
         if (!existing) {
@@ -78,11 +80,19 @@ function createApply({ authorityPublicKeyPem }) {
       }
 
       if (value.type === 'transfer-acceptance') {
-        const recipient = await view.get(`account:${value.recipientAccount}`)
-        if (!recipient) continue
-        if (!isValidAcceptance(value, recipient.value.publicKeyPem)) continue
+        let recipient = await view.get(`account:${value.recipientAccount}`)
+        const recipientPublicKeyPem = recipient ? recipient.value.publicKeyPem : value.recipientPublicKeyPem
+        if (!recipientPublicKeyPem) continue
+        if (!isValidAcceptance(value, recipientPublicKeyPem)) continue
 
         await host.ackWriter(node.from.key)
+        await ensureInlineAccount(view, {
+          accountId: value.recipientAccount,
+          name: value.recipientName || shortName(value.recipientAccount),
+          publicKeyPem: recipientPublicKeyPem,
+          writerKey: value.recipientWriterKey || node.from.key.toString('hex'),
+          createdAt: value.acceptedAt
+        })
 
         const existing = await view.get(`acceptance:${value.txId}`)
         if (!existing) {
@@ -160,20 +170,6 @@ function signRegistration(identity, name, writerKey, createdAt = new Date().toIS
   }
 }
 
-function signGrant(authority, toAccount, amount, txId = crypto.randomUUID(), createdAt = new Date().toISOString()) {
-  const payload = grantPayload({
-    txId,
-    toAccount,
-    amount,
-    createdAt
-  })
-
-  return {
-    ...payload,
-    authoritySignature: signPayload(authority.privateKeyPem, payload)
-  }
-}
-
 function signTransferProposal(identity, toAccount, amount, memo = '', txId = crypto.randomUUID(), createdAt = new Date().toISOString()) {
   const payload = proposalPayload({
     txId,
@@ -181,7 +177,9 @@ function signTransferProposal(identity, toAccount, amount, memo = '', txId = cry
     toAccount,
     amount,
     memo,
-    createdAt
+    createdAt,
+    senderPublicKeyPem: identity.publicKeyPem,
+    senderName: identity.name || null
   })
 
   return {
@@ -194,7 +192,9 @@ function signTransferAcceptance(identity, txId, acceptedAt = new Date().toISOStr
   const payload = acceptancePayload({
     txId,
     recipientAccount: identity.accountId,
-    acceptedAt
+    acceptedAt,
+    recipientPublicKeyPem: identity.publicKeyPem,
+    recipientName: identity.name || null
   })
 
   return {
@@ -209,7 +209,7 @@ async function computeBalance(view, accountId) {
   for await (const entry of view.createReadStream({ gte: 'entry:', lt: 'entry:~' })) {
     const tx = entry.value
 
-    if (tx.type === 'grant' && tx.toAccount === accountId) {
+    if (tx.type === 'initial-credit' && tx.toAccount === accountId) {
       balance += tx.amount
       continue
     }
@@ -229,7 +229,7 @@ async function computeAllBalances(view) {
   for await (const entry of view.createReadStream({ gte: 'entry:', lt: 'entry:~' })) {
     const tx = entry.value
 
-    if (tx.type === 'grant') {
+    if (tx.type === 'initial-credit') {
       balances.set(tx.toAccount, (balances.get(tx.toAccount) || 0) + tx.amount)
       continue
     }
@@ -273,6 +273,16 @@ async function findAccountNameById(view, accountId) {
   return entry ? entry.value.name : null
 }
 
+async function findAccountByName(view, name) {
+  for await (const entry of view.createReadStream({ gte: 'account:', lt: 'account:~' })) {
+    if (entry.value && entry.value.name === name) {
+      return entry.value
+    }
+  }
+
+  return null
+}
+
 function isValidRegistration(value) {
   if (!isObject(value)) return false
   if (typeof value.writerKey !== 'string' || value.writerKey.length === 0) return false
@@ -280,14 +290,6 @@ function isValidRegistration(value) {
   if (hashId(value.publicKeyPem) !== value.accountId) return false
 
   return verifyPayload(value.publicKeyPem, registrationPayload(value), value.signature)
-}
-
-function isValidGrant(value, authorityPublicKeyPem) {
-  if (!isObject(value)) return false
-  if (!value.txId || !value.toAccount || !Number.isInteger(value.amount) || value.amount <= 0) return false
-  if (!authorityPublicKeyPem || !value.authoritySignature) return false
-
-  return verifyPayload(authorityPublicKeyPem, grantPayload(value), value.authoritySignature)
 }
 
 function isValidProposal(value, publicKeyPem) {
@@ -318,16 +320,6 @@ function registrationPayload(value) {
   }
 }
 
-function grantPayload(value) {
-  return {
-    type: 'grant',
-    txId: value.txId,
-    toAccount: value.toAccount,
-    amount: value.amount,
-    createdAt: value.createdAt
-  }
-}
-
 function proposalPayload(value) {
   return {
     type: 'transfer-proposal',
@@ -336,7 +328,9 @@ function proposalPayload(value) {
     toAccount: value.toAccount,
     amount: value.amount,
     memo: value.memo || '',
-    createdAt: value.createdAt
+    createdAt: value.createdAt,
+    senderPublicKeyPem: value.senderPublicKeyPem || null,
+    senderName: value.senderName || null
   }
 }
 
@@ -345,8 +339,31 @@ function acceptancePayload(value) {
     type: 'transfer-acceptance',
     txId: value.txId,
     recipientAccount: value.recipientAccount,
-    acceptedAt: value.acceptedAt
+    acceptedAt: value.acceptedAt,
+    recipientPublicKeyPem: value.recipientPublicKeyPem || null,
+    recipientName: value.recipientName || null
   }
+}
+
+async function ensureInlineAccount(view, account) {
+  const existing = await view.get(`account:${account.accountId}`)
+  if (existing) return existing
+  if (hashId(account.publicKeyPem) !== account.accountId) return null
+
+  await view.put(`account:${account.accountId}`, {
+    accountId: account.accountId,
+    name: account.name,
+    publicKeyPem: account.publicKeyPem,
+    writerKey: account.writerKey,
+    createdAt: account.createdAt,
+    signature: null
+  })
+
+  return view.get(`account:${account.accountId}`)
+}
+
+function shortName(accountId) {
+  return accountId.slice(0, 12)
 }
 
 function signPayload(privateKeyPem, payload) {
@@ -380,6 +397,10 @@ function shortId(value) {
   return value.slice(0, 12)
 }
 
+function initialCreditTxId(accountId) {
+  return `initial:${accountId}`
+}
+
 function isObject(value) {
   return value && typeof value === 'object'
 }
@@ -389,13 +410,13 @@ module.exports = {
   computeBalance,
   createApply,
   createIdentity,
+  findAccountByName,
   findAccountNameById,
   hashId,
   listPendingForRecipient,
   openLedgerView,
   readHistory,
   shortId,
-  signGrant,
   signRegistration,
   signTransferAcceptance,
   signTransferProposal

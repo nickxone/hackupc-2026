@@ -19,13 +19,6 @@ async function main() {
     return
   }
 
-  if (command === 'faucet') {
-    const event = await app.grant(args[0], args[1])
-    console.log(`Granted ${args[1]} credits to ${args[0]}`)
-    console.log(`Grant ID: ${event.txId}`)
-    return
-  }
-
   if (command === 'send') {
     const event = await app.proposeTransfer(args[0], args[1], args[2], args.slice(3).join(' '))
     console.log(`Created transfer proposal ${event.txId}`)
@@ -93,7 +86,6 @@ function printHelp() {
   console.log('')
   console.log('Commands:')
   console.log('  node scripts/p2p-ledger-cli.js account create <name>')
-  console.log('  node scripts/p2p-ledger-cli.js faucet <name> <amount>')
   console.log('  node scripts/p2p-ledger-cli.js send <from> <to> <amount> [memo]')
   console.log('  node scripts/p2p-ledger-cli.js accept <recipient> <txId>')
   console.log('  node scripts/p2p-ledger-cli.js pending <recipient>')
@@ -105,7 +97,6 @@ function printHelp() {
 
 async function watchCommand(name) {
   const render = async () => {
-    await app.syncPeer(name)
     const balances = await app.balances()
     const row = balances.find(entry => entry.name === name)
     const pending = await app.pending(name)
@@ -146,8 +137,6 @@ async function demoCommand() {
     await app.createAccount('bob')
   } catch {}
 
-  await app.grant('alice', 100)
-  await app.grant('bob', 40)
   const proposal = await app.proposeTransfer('alice', 'bob', 25, 'demo-payment')
   await app.acceptTransfer('bob', proposal.txId)
 

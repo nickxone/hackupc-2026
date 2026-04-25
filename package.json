@@ -20,8 +20,10 @@
   },
   "scripts": {
     "demo:ledger": "node scripts/autobase-ledger-demo.js",
+    "ledger:init": "node scripts/init-ledger-db.js",
     "ledger:cli": "node scripts/p2p-ledger-cli.js",
     "ledger:sim": "node scripts/p2p-ledger-network-sim.js",
+    "ledger:swarm": "node scripts/p2p-ledger-hyperswarm.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {

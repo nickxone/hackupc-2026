@@ -1,7 +1,7 @@
 {
   "name": "bob",
-  "accountId": "62b5aecfd3e173478a91cac6ce8421d0a6505e87998717afe75f1f215faca678",
-  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAomXFvWAI+nKXkyIT9P1lNWbeAL7J9covgPNQr4ZAybI=\n-----END PUBLIC KEY-----\n",
-  "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIC5jB2y5ZjtZZvYBHG+pZ5F3MwSU5zIeMznee5G3pNr2\n-----END PRIVATE KEY-----\n",
+  "accountId": "46ecddb6b25309c2154f279197faa3f80274be33dde3730f4635954d4ac1e410",
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA9QPaEl4C+yo9V0d+wOtlryeMcjnRB5wPP9X2TEhX1wQ=\n-----END PUBLIC KEY-----\n",
+  "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIEG89qkuGXz7stvV/km2/SWBeYUsva2uWqJaO6rmaRIT\n-----END PRIVATE KEY-----\n",
   "peerDir": "/home/faruk/VSCode/hackupc_2026/qvac-test/hackupc-2026/.p2p-ledger-demo/peers/bob"
 }

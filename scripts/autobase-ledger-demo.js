@@ -48,14 +48,14 @@ async function main() {
   await sync([alice, bob])
 
   await alice.append({
-    type: 'grant',
+    type: 'initial-credit',
     account: 'alice',
     amount: 100,
     note: 'Initial hackathon credits'
   })
 
   await alice.append({
-    type: 'grant',
+    type: 'initial-credit',
     account: 'bob',
     amount: 40,
     note: 'Initial provider credits'
@@ -114,14 +114,14 @@ async function apply(nodes, view, host) {
       continue
     }
 
-    if (value.type === 'grant') {
+    if (value.type === 'initial-credit') {
       assertAccount(value.account)
       assertAmount(value.amount)
 
       balances.set(value.account, (balances.get(value.account) || 0) + value.amount)
 
       await view.append({
-        type: 'grant',
+        type: 'initial-credit',
         account: value.account,
         amount: value.amount,
         note: value.note || '',
@@ -177,7 +177,7 @@ async function computeBalances(view) {
   for (let i = 0; i < view.length; i++) {
     const entry = await view.get(i)
 
-    if (entry.type === 'grant') {
+    if (entry.type === 'initial-credit') {
       balances.set(entry.account, (balances.get(entry.account) || 0) + entry.amount)
       continue
     }
