@@ -7,7 +7,8 @@ import {
 import { Discovery } from "../src/core/discovery.js";
 import { Ledger } from "../src/core/ledger.js";
 import { config, getModel } from "../src/config.js";
-import { hostname } from "node:os";
+import os from "bare-os";
+const { hostname } = os;
 
 const peerName = process.env.PEER_NAME || hostname();
 const prompt = process.argv[2] || "Say hello in exactly 5 words.";

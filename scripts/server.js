@@ -1,9 +1,12 @@
+import process from "bare-process";
+import "../qvac/worker.entry.mjs";
 import { startComputeExchangeApi } from "../src/server/compute-exchange-api.js";
 import { Discovery } from "../src/core/discovery.js";
 import { Ledger } from "../src/core/ledger.js";
 import { loadDelegatedModel, runCompletion, unload } from "../src/core/qvac.js";
 import { config, getModel } from "../src/config.js";
-import { hostname } from "node:os";
+import os from "bare-os";
+const { hostname } = os;
 
 const peerName = process.env.PEER_NAME || hostname();
 const topic = process.env.QVAC_TOPIC || config.qvacTopic;

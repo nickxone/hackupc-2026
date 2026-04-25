@@ -9,16 +9,16 @@
     "name": "compute-exchange"
   },
   "scripts": {
-    "server": "node scripts/server.js",
-    "cli": "node cli/index.js",
+    "server": "pear run scripts/server.js",
+    "cli": "pear run cli/index.js",
     "pear": "pear run .",
-    "local": "node scripts/local-test.js",
-    "delegated": "node scripts/delegated-test.js",
-    "discovery": "node scripts/discovery-test.js",
-    "peer": "node scripts/discovery-peer.js",
-    "provider": "node scripts/provider.js",
-    "auto-consumer": "node scripts/auto-consumer.js",
-    "e2e": "node scripts/e2e-test.js"
+    "local": "pear run scripts/local-test.js",
+    "delegated": "pear run scripts/delegated-test.js",
+    "discovery": "pear run scripts/discovery-test.js",
+    "peer": "pear run scripts/discovery-peer.js",
+    "provider": "pear run scripts/provider.js",
+    "auto-consumer": "pear run scripts/auto-consumer.js",
+    "e2e": "pear run scripts/e2e-test.js"
   },
   "dependencies": {
     "@qvac/sdk": "^0.9.1",
@@ -29,6 +29,7 @@
     "node": ">=20"
   },
   "devDependencies": {
+    "@qvac/cli": "^0.2.3",
     "pear": "^2.0.1"
   }
 }

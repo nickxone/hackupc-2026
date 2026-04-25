@@ -10,7 +10,7 @@ import { Discovery } from "../src/core/discovery.js";
 import { Ledger } from "../src/core/ledger.js";
 import { loadDelegatedModel, runCompletion, unload } from "../src/core/qvac.js";
 import { config, getModel } from "../src/config.js";
-import os from "os";
+import os from "bare-os";
 const { hostname } = os;
 
 const DEFAULT_PEER_SCAN_MS = 3_000;

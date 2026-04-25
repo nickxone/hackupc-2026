@@ -1,7 +1,5 @@
-import fs from "fs";
-const { readFile, writeFile, mkdir } = fs.promises;
-import path from "path";
-const { dirname } = path;
+import { readFile, writeFile, mkdir } from "bare-fs/promises";
+import { dirname } from "bare-path";
 import { config } from "../config.js";
 
 export class Ledger {

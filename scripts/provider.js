@@ -1,3 +1,5 @@
+import process from "bare-process";
+import "../qvac/worker.entry.mjs";
 import {
   startProvider,
   stopProvider,
@@ -7,7 +9,8 @@ import {
 import { Discovery } from "../src/core/discovery.js";
 import { Ledger } from "../src/core/ledger.js";
 import { config, getModel, listModels } from "../src/config.js";
-import { hostname } from "node:os";
+import os from "bare-os";
+const { hostname } = os;
 
 const topic = process.env.QVAC_TOPIC || config.qvacTopic;
 const peerName = process.env.PEER_NAME || hostname();
