@@ -89,3 +89,6 @@ data/
 
 # Reference docs (large file pasted for context, not source)
 llms-full.txt
+
+# QVAC mobile bundle (Expo/RN only, regenerate via `npx qvac bundle sdk`)
+qvac/worker.bundle.js
