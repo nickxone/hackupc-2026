@@ -164,7 +164,6 @@ JSON-line frames:
 - `pear run . ask` streams delegated output but does not currently spend credits or send `creditAck`.
 - `scripts/server.js` spends credits locally but currently passes the provider QVAC public key to `sendCreditAck`; discovery connections are keyed by discovery peer id.
 - `/api/tags` returns an empty placeholder catalog.
-- `/api/generate` returns not implemented.
 - `/api/rate` returns `501`; ratings are not stored.
 - Provider selection is first matching provider in `scripts/server.js`; CLI has selection scaffolding but no real reputation or latency inputs.
 - Credits are unsigned and local only.

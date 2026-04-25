@@ -112,11 +112,6 @@ async function handleRequest(req, res, { peerScanMs, onChat, onGetPeers, onGetBa
     });
   }
 
-  if (req.method === "POST" && url.pathname === "/api/generate") {
-    const body = await readJson(req);
-    return sendGeneratePlaceholder(res, body);
-  }
-
   if (req.method === "POST" && url.pathname === "/api/chat") {
     const body = await readJson(req);
     if (onChat) {
@@ -160,24 +155,6 @@ async function handleRequest(req, res, { peerScanMs, onChat, onGetPeers, onGetBa
   return sendJson(res, 404, {
     error: `No route for ${req.method} ${url.pathname}`,
   });
-}
-
-function sendGeneratePlaceholder(res, body) {
-  const payload = {
-    model: body.model ?? "unknown",
-    created_at: new Date().toISOString(),
-    response: "",
-    done: true,
-    error: "QVAC delegated generation is not wired yet.",
-    p2p: {
-      status: "not_implemented",
-      prompt: body.prompt ?? "",
-      options: normalizeP2pOptions(body),
-    },
-  };
-
-  if (body.stream === false) return sendJson(res, 501, payload);
-  return sendJsonLine(res, 501, payload);
 }
 
 function sendChatPlaceholder(res, body) {

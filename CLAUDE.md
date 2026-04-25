@@ -76,7 +76,6 @@ Built:
 Placeholders or partial:
 
 - `/api/tags` returns an empty model list placeholder.
-- `/api/generate` returns not implemented.
 - `/api/rate` returns `501`; ratings are not persisted.
 - `pear run . daemon` does not wire `onChat`.
 - `pear run . ask` does not currently debit credits or send `creditAck`.

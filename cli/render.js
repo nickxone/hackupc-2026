@@ -50,7 +50,6 @@ export function renderDaemonStarted({ url, peerScanMs }) {
     "Compatibility routes:",
     "- GET  /api/version",
     "- GET  /api/tags",
-    "- POST /api/generate",
     "- POST /api/chat",
     "",
     "Compute Exchange routes:",
@@ -58,7 +57,7 @@ export function renderDaemonStarted({ url, peerScanMs }) {
     "- GET  /api/balance",
     "- POST /api/rate",
     "",
-    "Generation routes currently return placeholder responses.",
+    "Chat requests delegate to discovered QVAC providers when available.",
     "Use `pear run . serve` to start the QVAC provider runtime.",
     "Press Ctrl+C to stop.",
   ].join("\n");
@@ -259,7 +258,7 @@ export function renderAskDetails({ prompt, provider }) {
   }
 
   if (prompt) {
-    lines.push("", `Prompt: ${prompt}`);
+    lines.push("", `Prompt: ${prompt}\n`);
   }
 
   return lines.join("\n");
