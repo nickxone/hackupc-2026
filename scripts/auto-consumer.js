@@ -74,8 +74,8 @@ const tokens =
   tokenCount;
 const credits = ledger.priceOf({ tokens, tier: requestedModel.tier });
 
-await ledger.spend({
-  to: provider.peerId,
+const event = await ledger.spend({
+  to: provider.peerName,
   tokens,
   credits,
   model: requestedModel.id,
@@ -90,6 +90,8 @@ try {
     tokens,
     credits,
     model: requestedModel.id,
+    txId: event.value.txId,
+    fromName: peerName,
   });
   console.log(`[discovery] sent creditAck → ${provider.peerId.slice(0, 12)}`);
 } catch (err) {

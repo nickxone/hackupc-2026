@@ -1,23 +1,25 @@
-import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
-import { readFile, rm } from "node:fs/promises";
+import process from "bare-process";
+import { spawn } from "bare-subprocess";
+import { dirname, join } from "bare-path";
+import { readFile, rm } from "bare-fs/promises";
+import { LocalLedgerApp } from "../src/ledger/app.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const providerScript = join(__dirname, "provider.js");
-const consumerScript = join(__dirname, "auto-consumer.js");
-const dataDir = join(__dirname, "..", "data");
+const providerScript = "scripts/provider.js";
+const consumerScript = "scripts/auto-consumer.js";
+const dataDir = "data";
+const ledgerDir = ".p2p-ledger-demo";
 
 const PROVIDER_NAME = "alice";
 const CONSUMER_NAME = "bob";
 const PROVIDER_READY_TIMEOUT_MS = 30_000;
 const CONSUMER_TIMEOUT_MS = 120_000;
 
-console.log("Resetting data/ ...");
-await rm(dataDir, { recursive: true, force: true });
+console.log("Resetting data/ and .p2p-ledger-demo/ ...");
+await rm(dataDir, { recursive: true, force: true }).catch(() => {});
+await rm(ledgerDir, { recursive: true, force: true }).catch(() => {});
 
 function spawnNamed(name, script) {
-  const child = spawn("node", [script], {
+  const child = spawn("pear", ["run", script], {
     stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env, PEER_NAME: name },
   });
@@ -88,19 +90,17 @@ try {
   console.log("\nConsumer finished. Giving provider 2s to receive creditAck...\n");
   await new Promise((r) => setTimeout(r, 2000));
 
-  const aliceLedger = JSON.parse(
-    await readFile(join(dataDir, `${PROVIDER_NAME}.ledger.json`), "utf8"),
-  );
-  const bobLedger = JSON.parse(
-    await readFile(join(dataDir, `${CONSUMER_NAME}.ledger.json`), "utf8"),
-  );
+  const app = new LocalLedgerApp();
+  const balances = await app.balances();
+  const aliceBalance = balances.find(b => b.name === PROVIDER_NAME)?.amount || 0;
+  const bobBalance = balances.find(b => b.name === CONSUMER_NAME)?.amount || 0;
 
-  const aliceEarned = aliceLedger.balance - 100;
-  const bobSpent = 100 - bobLedger.balance;
+  const aliceEarned = aliceBalance - 100;
+  const bobSpent = 100 - bobBalance;
 
   console.log("\n--- ledger summary ---");
-  console.log(`alice balance: ${aliceLedger.balance}  (earned ${aliceEarned})`);
-  console.log(`bob   balance: ${bobLedger.balance}  (spent  ${bobSpent})`);
+  console.log(`alice balance: ${aliceBalance}  (earned ${aliceEarned})`);
+  console.log(`bob   balance: ${bobBalance}  (spent  ${bobSpent})`);
 
   if (aliceEarned > 0 && bobSpent > 0 && aliceEarned === bobSpent) {
     console.log("\nE2E credits test: PASS");

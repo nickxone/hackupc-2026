@@ -66,13 +66,14 @@ discovery.on("announce", (peer) => {
 
 discovery.on("creditAck", async (ack) => {
   await ledger.earn({
-    from: ack.from,
+    from: ack.fromName || ack.from,
     tokens: ack.tokens,
     credits: ack.credits,
     model: ack.model,
+    txId: ack.txId,
   });
   console.log(
-    `[ledger] earned ${ack.credits} credits from ${ack.from.slice(0, 12)} (${ack.tokens} tokens, ${ack.model}) → balance: ${ledger.balance()}`,
+    `[ledger] earned ${ack.credits} credits from ${ack.fromName || ack.from.slice(0, 12)} (${ack.tokens} tokens, ${ack.model}) → balance: ${ledger.balance()}`,
   );
 });
 

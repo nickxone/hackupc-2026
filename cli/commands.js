@@ -110,12 +110,12 @@ const commandDefinitions = [
             const tokens = stats?.usage?.total_tokens || totalTokens;
             const credits = Math.ceil(tokens / 10) * model.tier;
 
-            await ledger.spend({
-              to: provider.qvacProviderPublicKey, tokens, credits, model: model.key
+            const event = await ledger.spend({
+              to: provider.peerName, tokens, credits, model: model.key
             });
 
             await discovery.sendCreditAck({
-              to: provider.qvacProviderPublicKey, tokens, credits, model: model.key
+              to: provider.peerId, tokens, credits, model: model.key, txId: event.value.txId, fromName: peerName
             });
             
             await unload({ modelId });

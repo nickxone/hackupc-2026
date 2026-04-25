@@ -67,10 +67,10 @@ export class Discovery {
     return Array.from(this.peers.values());
   }
 
-  async sendCreditAck({ to, tokens, credits, model }) {
+  async sendCreditAck({ to, tokens, credits, model, txId, fromName }) {
     const conn = this.conns.get(to);
     if (!conn) throw new Error(`No active connection to peer ${to}`);
-    const msg = { t: "creditAck", to, tokens, credits, model };
+    const msg = { t: "creditAck", to, tokens, credits, model, txId, fromName };
     conn.write(JSON.stringify(msg) + "\n");
   }
 

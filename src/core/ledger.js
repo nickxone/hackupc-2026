@@ -1,25 +1,28 @@
-import { readFile, writeFile, mkdir } from "bare-fs/promises";
-import { dirname } from "bare-path";
+import { dirname, basename } from "bare-path";
 import { config } from "../config.js";
+import { LocalLedgerApp } from "../ledger/app.js";
 
 export class Ledger {
   constructor(path) {
     this.path = path;
-    this.state = null;
+    this.name = basename(path, ".ledger.json");
+    this.app = new LocalLedgerApp();
+    this.state = {
+      balance: 0,
+      log: [],
+    };
   }
 
   async load() {
+    await this.app.ensureReady();
     try {
-      const raw = await readFile(this.path, "utf8");
-      this.state = JSON.parse(raw);
+      await this.app.createAccount(this.name);
+      // Give new accounts a starting balance by granting initial balance
+      await this.app.grant(this.name, config.ledger.initialBalance);
     } catch (err) {
-      if (err.code !== "ENOENT") throw err;
-      this.state = {
-        balance: config.ledger.initialBalance,
-        log: [],
-      };
-      await this.#persist();
+      // Account already exists
     }
+    await this._syncState();
     return this.state;
   }
 
@@ -27,38 +30,33 @@ export class Ledger {
     return this.state.balance;
   }
 
-  async earn({ from, tokens, credits, model }) {
-    this.state.balance += credits;
-    this.state.log.push({
-      ts: Date.now(),
-      kind: "earn",
-      from,
-      tokens,
-      credits,
-      model,
-    });
-    await this.#persist();
+  async _syncState() {
+    const balances = await this.app.balances();
+    const myBalance = balances.find((b) => b.name === this.name);
+    this.state.balance = myBalance ? myBalance.amount : 0;
+    this.state.log = await this.app.history();
+  }
+
+  async earn({ from, tokens, credits, model, txId }) {
+    if (txId) {
+      await this.app.acceptTransfer(this.name, txId);
+    }
+    await this._syncState();
   }
 
   async spend({ to, tokens, credits, model }) {
-    this.state.balance -= credits;
-    this.state.log.push({
-      ts: Date.now(),
-      kind: "spend",
+    // to is a peerName in this context
+    const event = await this.app.proposeTransfer(
+      this.name,
       to,
-      tokens,
       credits,
-      model,
-    });
-    await this.#persist();
+      model
+    );
+    await this._syncState();
+    return event;
   }
 
   priceOf({ tokens, tier }) {
     return Math.ceil(tokens * config.ledger.pricePerTokenPerTier * tier);
-  }
-
-  async #persist() {
-    await mkdir(dirname(this.path), { recursive: true });
-    await writeFile(this.path, JSON.stringify(this.state, null, 2));
   }
 }
