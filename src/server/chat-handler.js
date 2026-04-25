@@ -3,6 +3,23 @@ import { config, getModel, listModels } from "../config.js";
 
 export { listModels };
 
+export function createModelsHandler({ discovery }) {
+  return async function onGetModels() {
+    const peers = discovery.listPeers();
+    const seen = new Set();
+    const models = [];
+    for (const peer of peers) {
+      for (const m of (peer.models || [])) {
+        if (m.key && !seen.has(m.key)) {
+          seen.add(m.key);
+          models.push(m);
+        }
+      }
+    }
+    return models.length > 0 ? models : listModels();
+  };
+}
+
 export function createChatHandler({ ledger, discovery }) {
   return async function onChat(res, body, isOai = false) {
     try {
@@ -17,8 +34,6 @@ export function createChatHandler({ ledger, discovery }) {
       }
 
       console.log(`[chat] Delegating to ${provider.peerName} (${provider.peerId.slice(0, 8)})`);
-
-      const displayModel = `${model.key} via ${provider.peerName}`;
 
       const modelId = await loadDelegatedModel({
         modelSrc: model.src,
@@ -45,12 +60,12 @@ export function createChatHandler({ ledger, discovery }) {
         totalTokens++;
         if (isOai) {
           res.write(`data: ${JSON.stringify({
-            id, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: displayModel,
+            id, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: model.key,
             choices: [{ index: 0, delta: { content: token }, finish_reason: null }],
           })}\n\n`);
         } else {
           res.write(`${JSON.stringify({
-            model: displayModel, created_at: new Date().toISOString(),
+            model: model.key, created_at: new Date().toISOString(),
             message: { role: "assistant", content: token }, done: false,
           })}\n`);
         }
@@ -58,13 +73,13 @@ export function createChatHandler({ ledger, discovery }) {
 
       if (isOai) {
         res.write(`data: ${JSON.stringify({
-          id, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: displayModel,
+          id, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: model.key,
           choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
         })}\n\n`);
         res.write("data: [DONE]\n\n");
       } else {
         res.write(`${JSON.stringify({
-          model: displayModel, created_at: new Date().toISOString(),
+          model: model.key, created_at: new Date().toISOString(),
           message: { role: "assistant", content: "" }, done: true,
           provider: providerInfo(provider),
         })}\n`);

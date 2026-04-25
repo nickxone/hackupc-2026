@@ -28,7 +28,7 @@ const commandDefinitions = [
       const { startComputeExchangeApi } = await import("../src/server/compute-exchange-api.js");
       const { Discovery } = await import("../src/core/discovery.js");
       const { Ledger } = await import("../src/core/ledger.js");
-      const { createChatHandler, listModels } = await import("../src/server/chat-handler.js");
+      const { createChatHandler, createModelsHandler } = await import("../src/server/chat-handler.js");
       const { discoveryTopic, qvacTopic } = await import("../src/topics.js");
       const { default: os } = await import("bare-os");
       const { hostname } = os;
@@ -59,7 +59,7 @@ const commandDefinitions = [
 
       api = await startComputeExchangeApi({
         ...options,
-        onGetModels: async () => listModels(),
+        onGetModels: createModelsHandler({ discovery }),
         onGetPeers: async () => discovery.listPeers(),
         onGetBalance: async () => ({ balance: ledger.balance(), log: ledger.state.log }),
         onChat: createChatHandler({ ledger, discovery }),

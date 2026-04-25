@@ -3,7 +3,7 @@ import "../qvac/worker.entry.mjs";
 import { startComputeExchangeApi } from "../src/server/compute-exchange-api.js";
 import { Discovery } from "../src/core/discovery.js";
 import { Ledger } from "../src/core/ledger.js";
-import { createChatHandler, listModels } from "../src/server/chat-handler.js";
+import { createChatHandler, createModelsHandler } from "../src/server/chat-handler.js";
 import { config } from "../src/config.js";
 import os from "bare-os";
 const { hostname } = os;
@@ -34,7 +34,7 @@ console.log(`[discovery] Joined as "${peerName}", peerId=${discovery.myPeerId().
 const api = await startComputeExchangeApi({
   host: "127.0.0.1",
   port: 11434,
-  onGetModels: async () => listModels(),
+  onGetModels: createModelsHandler({ discovery }),
   onGetPeers: async () => discovery.listPeers(),
   onGetBalance: async () => ({ balance: ledger.balance(), log: ledger.state.log }),
   onChat: createChatHandler({ ledger, discovery }),
