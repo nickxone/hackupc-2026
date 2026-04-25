@@ -74,9 +74,9 @@ export function renderProviderStarted({
     renderTitle("Serve"),
     "",
     "Status: ready",
-    `Peer: ${peerName} (${shortId(peerId)})`,
-    `QVAC topic: ${shortId(topic)}`,
-    `Provider public key: ${shortId(publicKey)}`,
+    `Peer: ${peerName} (${peerId})`,
+    `QVAC topic: ${topic}`,
+    `Provider public key: ${publicKey}`,
     "",
     "Serving models:",
   ];
@@ -124,7 +124,7 @@ export function renderPeers({ peers, peerId, waitMs, planned = false }) {
     renderTitle("Peers"),
     "",
     `Status: ${planned ? "pending" : "ready"}`,
-    `Discovery peer: ${shortId(peerId)}`,
+    `Discovery peer: ${peerId}`,
     `Scan window: ${waitMs}ms`,
     "",
   ];
@@ -152,12 +152,12 @@ export function renderPeers({ peers, peerId, waitMs, planned = false }) {
 
   for (const peer of peers) {
     const providerKey = peer.qvacProviderPublicKey
-      ? shortId(peer.qvacProviderPublicKey)
+      ? peer.qvacProviderPublicKey
       : "none";
     const rating = peer.rating ?? "unrated";
 
     lines.push("");
-    lines.push(`- ${peer.peerName ?? "anonymous"} (${shortId(peer.peerId)})`);
+    lines.push(`- ${peer.peerName ?? "anonymous"} (${peer.peerId})`);
     lines.push(`  qvac provider: ${providerKey}`);
     lines.push(`  rating: ${rating}`);
     lines.push("  models:");
@@ -198,7 +198,7 @@ export function renderBalance({ balance, log = [] }) {
     const credits = event.credits == null ? "unknown credits" : `${event.credits} credits`;
     const model = event.model ? ` model=${event.model}` : "";
     const peer = event.to ?? event.from ?? event.provider ?? "";
-    const peerPart = peer ? ` peer=${shortId(peer)}` : "";
+    const peerPart = peer ? ` peer=${peer}` : "";
     lines.push(`- ${formatTime(event.at ?? event.createdAt ?? event.time)} ${type}: ${credits}${model}${peerPart}`);
   }
 
@@ -279,11 +279,6 @@ export function renderError(message) {
     "",
     "Run `pear run . help` for available commands.",
   ].join("\n");
-}
-
-function shortId(value) {
-  if (!value) return "unknown";
-  return value.length <= 12 ? value : `${value.slice(0, 12)}...`;
 }
 
 function formatTime(ts) {
