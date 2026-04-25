@@ -9,6 +9,7 @@
     "name": "compute-exchange"
   },
   "scripts": {
+    "server": "node scripts/server.js",
     "cli": "node cli/index.js",
     "pear": "pear run .",
     "local": "node scripts/local-test.js",

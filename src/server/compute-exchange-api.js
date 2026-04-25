@@ -7,9 +7,12 @@ export async function startComputeExchangeApi({
   host = DEFAULT_HOST,
   port = DEFAULT_PORT,
   peerScanMs = 1_000,
+  onChat,
+  onGetPeers,
+  onGetBalance,
 } = {}) {
   const server = http.createServer((req, res) => {
-    handleRequest(req, res, { peerScanMs }).catch((err) => {
+    handleRequest(req, res, { peerScanMs, onChat, onGetPeers, onGetBalance }).catch((err) => {
       sendJson(res, 500, {
         error: err?.message ?? String(err),
       });
@@ -36,8 +39,19 @@ export async function startComputeExchangeApi({
   };
 }
 
-async function handleRequest(req, res, { peerScanMs }) {
+async function handleRequest(req, res, { peerScanMs, onChat, onGetPeers, onGetBalance }) {
   const url = new URL(req.url, "http://localhost");
+
+  // Add CORS headers for 3rd party apps (like OpenWebUI)
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+
+  if (req.method === "OPTIONS") {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
 
   if (req.method === "GET" && url.pathname === "/") {
     return sendJson(res, 200, {
@@ -62,6 +76,10 @@ async function handleRequest(req, res, { peerScanMs }) {
   }
 
   if (req.method === "GET" && url.pathname === "/api/peers") {
+    if (onGetPeers) {
+      const peers = await onGetPeers();
+      return sendJson(res, 200, { peers, waitMs: peerScanMs });
+    }
     return sendJson(res, 200, {
       peerId: null,
       waitMs: peerScanMs,
@@ -71,6 +89,10 @@ async function handleRequest(req, res, { peerScanMs }) {
   }
 
   if (req.method === "GET" && url.pathname === "/api/balance") {
+    if (onGetBalance) {
+      const { balance, log } = await onGetBalance();
+      return sendJson(res, 200, { balance, log });
+    }
     return sendJson(res, 200, {
       balance: null,
       log: [],
@@ -85,6 +107,9 @@ async function handleRequest(req, res, { peerScanMs }) {
 
   if (req.method === "POST" && url.pathname === "/api/chat") {
     const body = await readJson(req);
+    if (onChat) {
+      return onChat(res, body);
+    }
     return sendChatPlaceholder(res, body);
   }
 
@@ -96,6 +121,15 @@ async function handleRequest(req, res, { peerScanMs }) {
       score: body.score ?? null,
       p2p: placeholder("Provider ratings are not wired yet."),
     });
+  }
+
+  // Also support OpenAI compatibility for wider tool support
+  if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
+    const body = await readJson(req);
+    if (onChat) {
+      return onChat(res, body, true); // true = use OpenAI format
+    }
+    return sendChatPlaceholder(res, body);
   }
 
   return sendJson(res, 404, {
