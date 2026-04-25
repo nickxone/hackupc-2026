@@ -11,7 +11,7 @@ HackUPC 2026 entry: a serverless, peer-to-peer "compute exchange" where peers tr
 - `npm run local` — load a model locally and run a single completion. Validates QVAC + native llama.cpp on this machine.
 - `npm run delegated` — runs the full two-process delegated inference loop: spawns `scripts/provider.js` as a child, parses its public key from stdout, then spawns `scripts/consumer.js` against it. This is our core-primitive smoke test.
 - `node scripts/provider.js [topic-hex]` — run a standalone provider (e.g. on another machine). Prints `PROVIDER_PUBLIC_KEY=<hex>`.
-- `node scripts/consumer.js <topic-hex> <provider-pubkey> [prompt]` — run a standalone consumer against a known provider.
+- `node scripts/consumer.js <provider-pubkey> [prompt]` — run a standalone consumer against a known provider. Override the topic with `QVAC_TOPIC=<hex>` if needed.
 
 First run of `local` downloads a ~773 MB model to QVAC's cache; subsequent runs use it.
 
@@ -24,7 +24,7 @@ The project leans hard on **QVAC SDK (`@qvac/sdk`)**, which owns two things we w
 
 Because QVAC has no per-request hook on the provider and no `listProviders(topic)` API, we layer two things on top:
 
-1. **A discovery side-channel (not yet wired).** A separate Hyperswarm topic where peers announce `{publicKey, models, tier}` and send `creditAck` messages back to providers after a completion. `src/core/discovery.js` is the interface; all methods currently `throw` — implementing this is the next structural step.
+1. **A discovery side-channel.** A separate Hyperswarm topic where peers announce their name, models, QVAC topic, and QVAC provider public key. Consumers also send `creditAck` messages back to providers after a completion.
 2. **A local credit ledger.** `src/core/ledger.js` persists a balance and a log to a local JSON file. Consumer subtracts on completion; provider trusts the incoming `creditAck` and adds. No gossip, no consensus — intentionally simplest-possible for the hackathon.
 
 **Wrapper pattern:** nothing outside `src/core/qvac.js` imports `@qvac/sdk` directly. Keep it that way — it isolates SDK churn and keeps the rest of the app portable across runtimes (Node today, Pear/Bare later).
@@ -41,8 +41,7 @@ If you see `DELEGATE_CONNECTION_FAILED: Operation timeout after 30000ms` with no
 
 ## What's built vs stubbed
 
-- Built and validated: `src/core/qvac.js` (wrapper), `src/core/ledger.js` (local JSON persistence, earn/spend/pricing), `src/config.js`, both test scripts.
-- Stubbed: `src/core/discovery.js` — the interface exists, every method throws. Implementing this (Hyperswarm side channel for announce + creditAck) is the natural next step.
+- Built: `src/core/qvac.js` (wrapper), `src/core/ledger.js` (local JSON persistence, earn/spend/pricing), `src/core/discovery.js` (Hyperswarm announce + creditAck side channel), `src/config.js`, provider/consumer scripts, local/delegated/discovery smoke tests.
 - Not started: Pear app shell, Next.js UI, multi-peer orchestration, running on a second physical machine.
 
 ## Reference material
