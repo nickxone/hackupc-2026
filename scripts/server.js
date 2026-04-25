@@ -59,8 +59,9 @@ const api = await startComputeExchangeApi({
       });
 
       // Handle both OpenAI's "messages" format and Ollama's format
-      const history = (body.messages || []).map(m => ({ role: m.role, content: m.content }));
-      
+      const raw = (body.messages || []).map(m => ({ role: m.role, content: m.content }));
+      const history = truncateHistory(raw, model.contextTokens ?? 1024);
+
       const response = runCompletion({ modelId, history, stream: true });
 
       res.writeHead(200, {
@@ -146,6 +147,18 @@ process.on("SIGINT", async () => {
   await discovery.stop();
   process.exit(0);
 });
+
+// Drop system messages and trim from the front until history fits within tokenBudget.
+// Uses 4 chars-per-token as a rough estimate.
+function truncateHistory(messages, tokenBudget) {
+  const user = messages.filter(m => m.role !== "system");
+  let total = user.reduce((sum, m) => sum + Math.ceil(m.content.length / 4), 0);
+  while (user.length > 1 && total > tokenBudget) {
+    const removed = user.shift();
+    total -= Math.ceil(removed.content.length / 4);
+  }
+  return user;
+}
 
 function providerInfo(provider) {
   return {

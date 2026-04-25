@@ -12,6 +12,7 @@ const models = {
     src: LLAMA_3_2_1B_INST_Q4_0,
     label: "Llama 3.2 1B (Q4)",
     tier: 1,
+    contextTokens: 900,
   },
   "qwen-1.7b": {
     key: "qwen-1.7b",
@@ -19,6 +20,7 @@ const models = {
     src: QWEN3_1_7B_INST_Q4,
     label: "Qwen 3 1.7B (Q4)",
     tier: 3,
+    contextTokens: 1800,
   },
 };
 
