@@ -10,9 +10,10 @@ export async function startComputeExchangeApi({
   onChat,
   onGetPeers,
   onGetBalance,
+  onGetModels,
 } = {}) {
   const server = http.createServer((req, res) => {
-    handleRequest(req, res, { peerScanMs, onChat, onGetPeers, onGetBalance }).catch((err) => {
+    handleRequest(req, res, { peerScanMs, onChat, onGetPeers, onGetBalance, onGetModels }).catch((err) => {
       sendJson(res, 500, {
         error: err?.message ?? String(err),
       });
@@ -50,7 +51,7 @@ export async function startComputeExchangeApi({
   };
 }
 
-async function handleRequest(req, res, { peerScanMs, onChat, onGetPeers, onGetBalance }) {
+async function handleRequest(req, res, { peerScanMs, onChat, onGetPeers, onGetBalance, onGetModels }) {
   const url = new URL(req.url, "http://localhost");
 
   // Add CORS headers for 3rd party apps (like OpenWebUI)
@@ -131,6 +132,19 @@ async function handleRequest(req, res, { peerScanMs, onChat, onGetPeers, onGetBa
       provider: body.provider ?? body.provider_id ?? null,
       score: body.score ?? null,
       p2p: placeholder("Provider ratings are not wired yet."),
+    });
+  }
+
+  if (req.method === "GET" && url.pathname === "/v1/models") {
+    const models = onGetModels ? await onGetModels() : [];
+    return sendJson(res, 200, {
+      object: "list",
+      data: models.map((m) => ({
+        id: m.key,
+        object: "model",
+        created: 0,
+        owned_by: "p2p",
+      })),
     });
   }
 

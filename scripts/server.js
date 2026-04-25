@@ -4,7 +4,7 @@ import { startComputeExchangeApi } from "../src/server/compute-exchange-api.js";
 import { Discovery } from "../src/core/discovery.js";
 import { Ledger } from "../src/core/ledger.js";
 import { loadDelegatedModel, runCompletion, unload } from "../src/core/qvac.js";
-import { config, getModel } from "../src/config.js";
+import { config, getModel, listModels } from "../src/config.js";
 import os from "bare-os";
 const { hostname } = os;
 
@@ -34,6 +34,7 @@ console.log(`[discovery] Joined as "${peerName}", peerId=${discovery.myPeerId().
 const api = await startComputeExchangeApi({
   host: "127.0.0.1",
   port: 11434, // Ollama default port
+  onGetModels: async () => listModels(),
   onGetPeers: async () => discovery.listPeers(),
   onGetBalance: async () => ({ balance: ledger.balance(), log: ledger.state.log }),
   onChat: async (res, body, isOai = false) => {
