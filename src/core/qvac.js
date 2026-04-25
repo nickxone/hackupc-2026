@@ -5,6 +5,7 @@ import {
   unloadModel,
   completion,
   close,
+  downloadAsset,
 } from "@qvac/sdk";
 
 export async function startProvider({ topic, firewall } = {}) {
@@ -51,4 +52,8 @@ export async function unload({ modelId }) {
 
 export async function shutdown() {
   await close();
+}
+
+export async function preDownload({ modelSrc, onProgress }) {
+  await downloadAsset({ assetSrc: modelSrc, onProgress });
 }

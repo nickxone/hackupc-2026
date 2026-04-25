@@ -6,13 +6,14 @@ import {
 } from "../src/core/qvac.js";
 import { Discovery } from "../src/core/discovery.js";
 import { Ledger } from "../src/core/ledger.js";
-import { config } from "../src/config.js";
+import { config, getModel } from "../src/config.js";
 import { hostname } from "node:os";
 
 const peerName = process.env.PEER_NAME || hostname();
 const prompt = process.argv[2] || "Say hello in exactly 5 words.";
-const targetModelId = config.defaultModel.id;
-const targetTier = config.defaultModel.tier;
+const requestedModel = getModel(
+  process.env.MODEL || config.defaultModelKey,
+);
 const FIND_TIMEOUT_MS = 30_000;
 
 const ledger = new Ledger(`data/${peerName}.ledger.json`);
@@ -29,10 +30,12 @@ const discovery = new Discovery({
 await discovery.start();
 console.log(`[discovery] my peerId: ${discovery.myPeerId().slice(0, 12)}`);
 
-console.log(`Waiting for a provider that serves ${targetModelId}...`);
+console.log(
+  `Looking for a provider that serves ${requestedModel.key} (${requestedModel.label}, tier ${requestedModel.tier})...`,
+);
 const provider = await waitForProvider({
   discovery,
-  modelId: targetModelId,
+  model: requestedModel,
   timeoutMs: FIND_TIMEOUT_MS,
 });
 console.log(
@@ -40,7 +43,7 @@ console.log(
 );
 
 const modelId = await loadDelegatedModel({
-  modelSrc: config.defaultModel.src,
+  modelSrc: requestedModel.src,
   topic: provider.qvacTopic,
   providerPublicKey: provider.qvacProviderPublicKey,
   timeoutMs: config.requestTimeoutMs,
@@ -68,16 +71,16 @@ const tokens =
   stats.completionTokens ??
   stats.tokens ??
   tokenCount;
-const credits = ledger.priceOf({ tokens, tier: targetTier });
+const credits = ledger.priceOf({ tokens, tier: requestedModel.tier });
 
 await ledger.spend({
   to: provider.peerId,
   tokens,
   credits,
-  model: targetModelId,
+  model: requestedModel.id,
 });
 console.log(
-  `[ledger] spent ${credits} credits (${tokens} tokens, tier ${targetTier}) → balance: ${ledger.balance()}`,
+  `[ledger] spent ${credits} credits (${tokens} tokens, tier ${requestedModel.tier}) → balance: ${ledger.balance()}`,
 );
 
 try {
@@ -85,7 +88,7 @@ try {
     to: provider.peerId,
     tokens,
     credits,
-    model: targetModelId,
+    model: requestedModel.id,
   });
   console.log(`[discovery] sent creditAck → ${provider.peerId.slice(0, 12)}`);
 } catch (err) {
@@ -97,7 +100,7 @@ await discovery.stop();
 await shutdown();
 process.exit(0);
 
-function waitForProvider({ discovery, modelId, timeoutMs }) {
+function waitForProvider({ discovery, model, timeoutMs }) {
   return new Promise((resolve, reject) => {
     let done = false;
     let timer = null;
@@ -111,7 +114,7 @@ function waitForProvider({ discovery, modelId, timeoutMs }) {
 
     const matchPeer = (p) =>
       p.qvacProviderPublicKey &&
-      p.models.some((m) => m.id === modelId);
+      p.models.some((m) => m.key === model.key || m.id === model.id);
 
     const existing = discovery.listPeers().find(matchPeer);
     if (existing) return finish(true, existing);
@@ -119,7 +122,9 @@ function waitForProvider({ discovery, modelId, timeoutMs }) {
     timer = setTimeout(() => {
       finish(
         false,
-        new Error(`no provider for ${modelId} found within ${timeoutMs}ms`),
+        new Error(
+          `no provider for ${model.key} (${model.id}) found within ${timeoutMs}ms`,
+        ),
       );
     }, timeoutMs);
 

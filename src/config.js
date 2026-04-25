@@ -1,18 +1,38 @@
 import { createHash } from "node:crypto";
-import { LLAMA_3_2_1B_INST_Q4_0 } from "@qvac/sdk";
+import {
+  LLAMA_3_2_1B_INST_Q4_0,
+  QWEN3_1_7B_INST_Q4,
+} from "@qvac/sdk";
 
 const topicFromName = (name) =>
   createHash("sha256").update(name).digest("hex");
+
+const models = {
+  "llama-1b": {
+    key: "llama-1b",
+    id: "LLAMA_3_2_1B_INST_Q4_0",
+    src: LLAMA_3_2_1B_INST_Q4_0,
+    label: "Llama 3.2 1B (Q4)",
+    tier: 1,
+  },
+  "qwen-1.7b": {
+    key: "qwen-1.7b",
+    id: "QWEN3_1_7B_INST_Q4",
+    src: QWEN3_1_7B_INST_Q4,
+    label: "Qwen 3 1.7B (Q4)",
+    tier: 3,
+  },
+};
+
+const defaultModelKey = "llama-1b";
 
 export const config = {
   qvacTopic: topicFromName("compute-exchange-qvac-v1"),
   discoveryTopic: topicFromName("compute-exchange-discovery-v1"),
 
-  defaultModel: {
-    src: LLAMA_3_2_1B_INST_Q4_0,
-    id: "LLAMA_3_2_1B_INST_Q4_0",
-    tier: 1,
-  },
+  models,
+  defaultModelKey,
+  defaultModel: models[defaultModelKey],
 
   ledger: {
     initialBalance: 100,
@@ -21,3 +41,16 @@ export const config = {
 
   requestTimeoutMs: 60_000,
 };
+
+export function getModel(idOrKey) {
+  for (const m of Object.values(models)) {
+    if (m.key === idOrKey || m.id === idOrKey) return m;
+  }
+  throw new Error(
+    `Unknown model "${idOrKey}". Available keys: ${Object.keys(models).join(", ")}`,
+  );
+}
+
+export function listModels() {
+  return Object.values(models);
+}
