@@ -1,3 +1,4 @@
+import process from "bare-process";
 import { Discovery } from "../src/core/discovery.js";
 import { config } from "../src/config.js";
 

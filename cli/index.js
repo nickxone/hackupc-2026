@@ -8,8 +8,8 @@ async function main() {
 
   if (result.error) {
     console.error(renderError(result.error));
-    console.log(result.output);
-  } else {
+    if (!result.streamed || result.output) console.log(result.output);
+  } else if (!result.streamed || result.output) {
     console.log(result.output);
   }
 

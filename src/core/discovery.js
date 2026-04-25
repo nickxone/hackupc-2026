@@ -1,6 +1,7 @@
 import Hyperswarm from "hyperswarm";
 
 const ANNOUNCE_INTERVAL_MS = 10_000;
+const DISCOVERY_REFRESH_INTERVAL_MS = 5_000;
 
 export class Discovery {
   constructor({
@@ -21,10 +22,13 @@ export class Discovery {
     this.qvacProviderPublicKey = qvacProviderPublicKey ?? null;
 
     this.swarm = null;
+    this.discovery = null;
     this.peers = new Map();
     this.conns = new Map();
     this.handlers = { announce: [], creditAck: [], peerLeft: [] };
     this.announceInterval = null;
+    this.refreshInterval = null;
+    this.refreshing = false;
   }
 
   async start() {
@@ -32,20 +36,28 @@ export class Discovery {
     this.swarm.on("connection", (conn, info) =>
       this.#onConnection(conn, info),
     );
-    const discovery = this.swarm.join(this.topic, {
+    this.discovery = this.swarm.join(this.topic, {
       server: true,
       client: true,
     });
-    await discovery.flushed();
+    await this.discovery.flushed();
+    this.#broadcastAnnounce();
     this.announceInterval = setInterval(
       () => this.#broadcastAnnounce(),
       ANNOUNCE_INTERVAL_MS,
+    );
+    this.refreshInterval = setInterval(
+      () => this.#refreshDiscovery(),
+      DISCOVERY_REFRESH_INTERVAL_MS,
     );
   }
 
   async stop() {
     if (this.announceInterval) clearInterval(this.announceInterval);
+    if (this.refreshInterval) clearInterval(this.refreshInterval);
     this.announceInterval = null;
+    this.refreshInterval = null;
+    this.discovery = null;
     if (this.swarm) {
       await this.swarm.destroy();
       this.swarm = null;
@@ -149,5 +161,18 @@ export class Discovery {
 
   #broadcastAnnounce() {
     for (const conn of this.conns.values()) this.#sendAnnounceTo(conn);
+  }
+
+  async #refreshDiscovery() {
+    if (!this.discovery || this.refreshing) return;
+    this.refreshing = true;
+    try {
+      await this.discovery.refresh({ server: true, client: true });
+      this.#broadcastAnnounce();
+    } catch {
+      // transient DHT refresh failures are expected on unstable networks
+    } finally {
+      this.refreshing = false;
+    }
   }
 }

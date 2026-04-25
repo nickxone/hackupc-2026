@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@qvac/sdk": "^0.9.1",
+    "bare-process": "^4.4.1",
     "bare-http1": "^4.5.6",
     "hyperswarm": "^4.17.0"
   },
