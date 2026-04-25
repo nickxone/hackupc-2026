@@ -1,7 +1,0 @@
-{
-  "name": "alice",
-  "accountId": "711551ac5d12beb89590cd15062897ac28139637f3b12c4f1858fef91126c057",
-  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA2Sxr3p4SiMXqgi0BFKmrblcFfedQp7iJm1ZaHSfJpK0=\n-----END PUBLIC KEY-----\n",
-  "privateKeyPem": "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIFsdpuOFGLcRxmbWNSq8TlaoZyA+NYNZOxecBT7ePT5e\n-----END PRIVATE KEY-----\n",
-  "peerDir": "/home/tomlam/hackupc-2026/alice/peers/alice"
-}
