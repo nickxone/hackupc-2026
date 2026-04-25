@@ -18,6 +18,8 @@ export function createChatHandler({ ledger, discovery }) {
 
       console.log(`[chat] Delegating to ${provider.peerName} (${provider.peerId.slice(0, 8)})`);
 
+      const displayModel = `${model.key} via ${provider.peerName}`;
+
       const modelId = await loadDelegatedModel({
         modelSrc: model.src,
         topic: provider.qvacTopic,
@@ -43,12 +45,12 @@ export function createChatHandler({ ledger, discovery }) {
         totalTokens++;
         if (isOai) {
           res.write(`data: ${JSON.stringify({
-            id, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: model.key,
+            id, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: displayModel,
             choices: [{ index: 0, delta: { content: token }, finish_reason: null }],
           })}\n\n`);
         } else {
           res.write(`${JSON.stringify({
-            model: model.key, created_at: new Date().toISOString(),
+            model: displayModel, created_at: new Date().toISOString(),
             message: { role: "assistant", content: token }, done: false,
           })}\n`);
         }
@@ -56,13 +58,13 @@ export function createChatHandler({ ledger, discovery }) {
 
       if (isOai) {
         res.write(`data: ${JSON.stringify({
-          id, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: model.key,
+          id, object: "chat.completion.chunk", created: Math.floor(Date.now() / 1000), model: displayModel,
           choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
         })}\n\n`);
         res.write("data: [DONE]\n\n");
       } else {
         res.write(`${JSON.stringify({
-          model: model.key, created_at: new Date().toISOString(),
+          model: displayModel, created_at: new Date().toISOString(),
           message: { role: "assistant", content: "" }, done: true,
           provider: providerInfo(provider),
         })}\n`);
