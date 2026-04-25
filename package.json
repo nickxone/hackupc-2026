@@ -8,7 +8,9 @@
     "local": "node scripts/local-test.js",
     "delegated": "node scripts/delegated-test.js",
     "discovery": "node scripts/discovery-test.js",
-    "peer": "node scripts/discovery-peer.js"
+    "peer": "node scripts/discovery-peer.js",
+    "provider": "node scripts/provider.js",
+    "auto-consumer": "node scripts/auto-consumer.js"
   },
   "dependencies": {
     "@qvac/sdk": "^0.9.1",
