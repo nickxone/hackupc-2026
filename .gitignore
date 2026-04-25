@@ -1,0 +1,14 @@
+node_modules/
+
+.p2p-ledger-demo/
+.p2p-ledger-sim/
+
+*.log
+.DS_Store
+
+.env
+.env.*
+
+.codex
+.vscode/
+.idea/

@@ -7,13 +7,14 @@ const b4a = require('b4a')
 
 const protocol = require('./protocol')
 
+const HARDCODED_BOOTSTRAP_KEY = 'a82b2a66f25d7b518a1931a4bbd37bce4b3f8908d9fa3293d130c001f7abbeb5'
+
 class LocalLedgerApp {
   constructor({ rootDir = path.resolve(process.env.P2P_LEDGER_ROOT || '.p2p-ledger-demo') } = {}) {
     this.rootDir = rootDir
     this.accountsDir = path.join(rootDir, 'accounts')
     this.peersDir = path.join(rootDir, 'peers')
     this.bootstrapDir = path.join(rootDir, 'bootstrap')
-    this.bootstrapMetaFile = path.join(rootDir, 'bootstrap.json')
     this.authorityFile = path.join(rootDir, 'authority.json')
   }
 
@@ -303,7 +304,14 @@ class LocalLedgerApp {
   }
 
   async ensureBootstrapBase() {
-    if (fs.existsSync(this.bootstrapMetaFile)) return this.loadBootstrap()
+    const legacyBootstrapFile = path.join(this.rootDir, 'bootstrap.json')
+    if (fs.existsSync(legacyBootstrapFile)) {
+      const legacy = loadJson(legacyBootstrapFile)
+      if (legacy.key !== HARDCODED_BOOTSTRAP_KEY) {
+        throw new Error(`bootstrap.json key does not match hardcoded market key: ${legacy.key}`)
+      }
+      return this.loadBootstrap()
+    }
 
     const authority = this.loadAuthority()
     const store = new Corestore(this.bootstrapDir)
@@ -315,7 +323,11 @@ class LocalLedgerApp {
     })
 
     await base.ready()
-    writeJson(this.bootstrapMetaFile, { key: base.key.toString('hex') })
+    if (base.key.toString('hex') !== HARDCODED_BOOTSTRAP_KEY) {
+      await base.close()
+      await store.close()
+      throw new Error(`Initialized Autobase key ${base.key.toString('hex')} does not match hardcoded market key ${HARDCODED_BOOTSTRAP_KEY}`)
+    }
     await base.close()
     await store.close()
     return this.loadBootstrap()
@@ -334,7 +346,7 @@ class LocalLedgerApp {
   }
 
   loadBootstrap() {
-    return loadJson(this.bootstrapMetaFile)
+    return { key: HARDCODED_BOOTSTRAP_KEY }
   }
 
   loadAccount(name) {
@@ -378,5 +390,6 @@ function sleep(ms) {
 }
 
 module.exports = {
+  HARDCODED_BOOTSTRAP_KEY,
   LocalLedgerApp
 }
