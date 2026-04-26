@@ -9,33 +9,59 @@ export function renderTitle(text) {
 }
 
 export function renderUsage({ commands }) {
+  const byName = new Map(commands.map((command) => [command.name, command]));
+  const common = ["daemon", "serve", "peers", "balance", "rate", "ratings", "ask"]
+    .map((name) => byName.get(name))
+    .filter(Boolean);
+
   const lines = [
     renderTitle("Compute Exchange CLI"),
     "",
-    "Usage:",
+    "Run the app with:",
     "  pear run . <command> [args]",
     "  npm run cli -- <command> [args]",
     "",
-    "Commands:",
+    "Typical flow:",
+    "  1. Start a provider with `pear run . serve`",
+    "  2. Start a local daemon with `pear run . daemon` or `pear run scripts/server.js`",
+    "  3. Inspect peers with `pear run . peers`",
+    "  4. Send requests or rate the last provider you paid with `pear run . rate 5`",
+    "",
+    "Common commands:",
   ];
 
-  for (const command of commands) {
-    const usage = command.usage.padEnd(28, " ");
+  for (const command of common) {
+    const usage = command.usage.padEnd(42, " ");
     lines.push(`  ${usage} ${command.description}`);
   }
 
   lines.push("", "Examples:");
   lines.push("  pear run . daemon");
   lines.push("  pear run . serve");
+  lines.push("  pear run . peers");
+  lines.push("  pear run . balance");
   lines.push('  pear run . ask --max-credits 20 "Explain vector databases"');
   lines.push(
     '  pear run . ask --peer <peer-id> --max-credits 20 "Explain vector databases"',
   );
-  lines.push("  pear run . peers");
-  lines.push("  pear run . balance");
   lines.push("  pear run . rate 5");
   lines.push("  pear run . rate <ledger-account-id> 5");
   lines.push("  pear run . ratings");
+  lines.push("  pear run . ratings <ledger-account-id>");
+
+  lines.push("", "Notes:");
+  lines.push("  - `rate 5` rates the last peer you successfully paid.");
+  lines.push("  - `peers` shows each peer's ledger account id and average rating.");
+  lines.push("  - Use `pear run scripts/server.js` if Pear app locking gets in the way of `daemon`.");
+
+  const remaining = commands.filter((command) => !common.includes(command));
+  if (remaining.length > 0) {
+    lines.push("", "Other commands:");
+    for (const command of remaining) {
+      const usage = command.usage.padEnd(42, " ");
+      lines.push(`  ${usage} ${command.description}`);
+    }
+  }
 
   return lines.join("\n");
 }
@@ -123,6 +149,12 @@ export function renderCommandResult({
 }
 
 export function renderPeers({ peers, peerId, waitMs, planned = false }) {
+  const sortedPeers = [...peers].sort((a, b) => {
+    const ratingDiff = (b.rating ?? -1) - (a.rating ?? -1);
+    if (ratingDiff !== 0) return ratingDiff;
+    return (a.peerName ?? "").localeCompare(b.peerName ?? "");
+  });
+
   const lines = [
     renderTitle("Peers"),
     "",
@@ -144,26 +176,26 @@ export function renderPeers({ peers, peerId, waitMs, planned = false }) {
     return lines.join("\n");
   }
 
-  if (peers.length === 0) {
+  if (sortedPeers.length === 0) {
     lines.push("No peers found.");
     lines.push("");
     lines.push("Start a discovery peer with `npm run peer` in another terminal.");
     return lines.join("\n");
   }
 
-  lines.push(`Found ${peers.length} peer${peers.length === 1 ? "" : "s"}:`);
+  lines.push(`Found ${sortedPeers.length} peer${sortedPeers.length === 1 ? "" : "s"}:`);
 
-  for (const peer of peers) {
+  for (const peer of sortedPeers) {
     const providerKey = peer.qvacProviderPublicKey
       ? peer.qvacProviderPublicKey
       : "none";
-    const rating = peer.rating ?? "unrated";
+    const rating = formatPeerRating(peer);
 
     lines.push("");
     lines.push(`- ${peer.peerName ?? "anonymous"} (${peer.peerId})`);
     lines.push(`  ledger account: ${peer.ledgerAccountId ?? "none"}`);
     lines.push(`  qvac provider: ${providerKey}`);
-    lines.push(`  rating: ${rating}`);
+    lines.push(`  average rating: ${rating}`);
     lines.push("  models:");
 
     if (peer.models?.length) {
@@ -180,6 +212,13 @@ export function renderPeers({ peers, peerId, waitMs, planned = false }) {
   }
 
   return lines.join("\n");
+}
+
+function formatPeerRating(peer) {
+  if (peer.rating == null) return "unrated";
+  const count = Number.isInteger(peer.ratingCount) ? peer.ratingCount : 0;
+  const countLabel = count === 1 ? "rating" : "ratings";
+  return `${Number(peer.rating).toFixed(2)}/5 (${count} ${countLabel})`;
 }
 
 export function renderBalance({ balance, log = [] }) {

@@ -61,6 +61,13 @@ const commandDefinitions = [
         ledgerRegistration,
       });
 
+      discovery.on("announce", async (peer) => {
+        const summary = peer.ledgerAccountId
+          ? await ratings.summaryFor(peer.ledgerAccountId)
+          : { average: null, count: 0 };
+        console.log(formatDiscoveredPeerSummary(peer, summary));
+      });
+
       discovery.on("ledgerRegister", async ({ event }) => {
         try {
           await ledger.ingestSignedEvent(event);
@@ -783,10 +790,17 @@ function providerInfo(provider) {
 
 async function enrichPeersWithRatings(peers, ratings) {
   return Promise.all(
-    peers.map(async (peer) => ({
-      ...peer,
-      rating: peer.ledgerAccountId ? await ratings.averageFor(peer.ledgerAccountId) : null,
-    })),
+    peers.map(async (peer) => {
+      const summary = peer.ledgerAccountId
+        ? await ratings.summaryFor(peer.ledgerAccountId)
+        : { average: null, count: 0 };
+
+      return {
+        ...peer,
+        rating: summary.average,
+        ratingCount: summary.count,
+      };
+    }),
   );
 }
 
@@ -860,6 +874,22 @@ function setupProviderCleanup({ provider, process }) {
 
   process.on("SIGINT", () => cleanup("SIGINT"));
   process.on("SIGTERM", () => cleanup("SIGTERM"));
+}
+
+function formatDiscoveredPeerSummary(peer, ratingSummary = { average: null, count: 0 }) {
+  const models = (peer.models || []).map((model) => model.key ?? model.id).join(", ") || "none";
+  const rating = ratingSummary.average == null
+    ? "unrated"
+    : `${Number(ratingSummary.average).toFixed(2)}/5 (${ratingSummary.count} ${ratingSummary.count === 1 ? "rating" : "ratings"})`;
+  return [
+    "[discovery] peer summary",
+    `  name: ${peer.peerName ?? "anonymous"}`,
+    `  peer id: ${peer.peerId?.slice(0, 12) ?? "unknown"}`,
+    `  ledger: ${peer.ledgerAccountId?.slice(0, 12) ?? "none"}`,
+    `  rating: ${rating}`,
+    `  provider: ${peer.qvacProviderPublicKey ? "yes" : "no"}`,
+    `  models: ${models}`,
+  ].join("\n");
 }
 
 async function runCleanupStep(label, step, errors) {

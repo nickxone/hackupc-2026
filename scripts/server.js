@@ -158,10 +158,17 @@ process.on("unhandledRejection", (reason) => {
 
 async function enrichPeersWithRatings(peers, ratings) {
   return Promise.all(
-    peers.map(async (peer) => ({
-      ...peer,
-      rating: peer.ledgerAccountId ? await ratings.averageFor(peer.ledgerAccountId) : null,
-    })),
+    peers.map(async (peer) => {
+      const summary = peer.ledgerAccountId
+        ? await ratings.summaryFor(peer.ledgerAccountId)
+        : { average: null, count: 0 };
+
+      return {
+        ...peer,
+        rating: summary.average,
+        ratingCount: summary.count,
+      };
+    }),
   );
 }
 

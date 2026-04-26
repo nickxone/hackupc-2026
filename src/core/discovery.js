@@ -132,7 +132,6 @@ export class Discovery {
 
   #onConnection(conn, info) {
     const peerId = info.publicKey.toString("hex");
-    console.log(`PEER_CONNECTED ${peerId.slice(0, 12)}`);
     this.conns.set(peerId, conn);
 
     let buf = "";
@@ -159,6 +158,7 @@ export class Discovery {
       return;
     }
     if (msg.t === "announce") {
+      const previous = this.peers.get(peerId);
       const peer = {
         peerId,
         peerName: msg.peerName,
@@ -166,11 +166,13 @@ export class Discovery {
         qvacTopic: msg.qvacTopic ?? null,
         qvacProviderPublicKey: msg.qvacProviderPublicKey ?? null,
         ledgerAccountId: msg.ledgerAccountId ?? null,
-        firstSeenAt: this.peers.get(peerId)?.firstSeenAt ?? Date.now(),
+        firstSeenAt: previous?.firstSeenAt ?? Date.now(),
         lastSeenAt: Date.now(),
       };
       this.peers.set(peerId, peer);
-      this.handlers.announce.forEach((h) => h(peer));
+      if (isNewOrChangedPeer(previous, peer)) {
+        this.handlers.announce.forEach((h) => h(peer));
+      }
     } else if (msg.t === "creditAck" && msg.to === this.myPeerId()) {
       this.handlers.creditAck.forEach((h) =>
         h({
@@ -232,4 +234,29 @@ export class Discovery {
       this.refreshing = false;
     }
   }
+}
+
+function isNewOrChangedPeer(previous, next) {
+  if (!previous) return true;
+  return (
+    previous.peerName !== next.peerName ||
+    previous.qvacTopic !== next.qvacTopic ||
+    previous.qvacProviderPublicKey !== next.qvacProviderPublicKey ||
+    previous.ledgerAccountId !== next.ledgerAccountId ||
+    !sameModels(previous.models, next.models)
+  );
+}
+
+function sameModels(left = [], right = []) {
+  if (left.length !== right.length) return false;
+  for (let i = 0; i < left.length; i++) {
+    if (
+      left[i]?.id !== right[i]?.id ||
+      left[i]?.key !== right[i]?.key ||
+      left[i]?.tier !== right[i]?.tier
+    ) {
+      return false;
+    }
+  }
+  return true;
 }

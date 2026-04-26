@@ -75,6 +75,20 @@ export class RatingsNode {
     return getAverageRating(this.view, target);
   }
 
+  async summaryFor(target) {
+    await this.update();
+    const ratings = await getRatingsForTarget(this.view, target);
+    if (ratings.length === 0) {
+      return { average: null, count: 0 };
+    }
+
+    const total = ratings.reduce((sum, rating) => sum + rating.score, 0);
+    return {
+      average: Number((total / ratings.length).toFixed(2)),
+      count: ratings.length,
+    };
+  }
+
   async allAverages() {
     await this.update();
     return getAllAverageRatings(this.view);
