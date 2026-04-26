@@ -21,11 +21,7 @@ export function createModelsHandler({ discovery }) {
 }
 
 export function createChatHandler({ ledger, discovery, pricePerRequest, acceptanceTimeoutMs = 15_000 }) {
-  // Serialize requests: allow 1 active + 1 queued. Reject beyond that with 429.
-  let chainTail = Promise.resolve();
-  let queueDepth = 0;
-  const MAX_QUEUE = 1;
-
+  let inFlight = false;
   const modelCache = new Map();
 
   discovery.on("peerLeft", (peerId) => {
@@ -49,22 +45,12 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
   }
 
   return async function onChat(res, body, isOai = false) {
-    if (queueDepth >= MAX_QUEUE) {
-      res.writeHead(429, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({
-        error: "Request queue full. Please wait and retry.",
-      }));
-      return;
+    if (inFlight) {
+      console.log("[chat] Busy — returning placeholder response");
+      return sendBusyResponse(res, body, isOai);
     }
 
-    queueDepth++;
-    const mySlot = chainTail;
-    let releaseMySlot;
-    chainTail = new Promise((resolve) => { releaseMySlot = resolve; });
-
-    await mySlot;
-    queueDepth--;
-
+    inFlight = true;
     try {
       const wantsStreaming = body.stream !== false;
       const modelKey = body.model || config.defaultModelKey;
@@ -226,9 +212,85 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
         res.end();
       }
     } finally {
-      releaseMySlot();
+      inFlight = false;
     }
   };
+}
+
+function sendBusyResponse(res, body, isOai) {
+  const wantsStreaming = body.stream !== false;
+  const modelKey = body.model || config.defaultModelKey;
+  const id = `chatcmpl-${Math.random().toString(36).slice(2)}`;
+  const created = Math.floor(Date.now() / 1000);
+  const text = "I'm currently processing another request. Please resend your message in a moment.";
+
+  if (wantsStreaming) {
+    res.writeHead(200, {
+      "Content-Type": isOai ? "text/event-stream" : "application/x-ndjson",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    });
+    if (isOai) {
+      res.write(
+        `data: ${JSON.stringify({
+          id,
+          object: "chat.completion.chunk",
+          created,
+          model: modelKey,
+          choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
+        })}\n\n`,
+      );
+      res.write(
+        `data: ${JSON.stringify({
+          id,
+          object: "chat.completion.chunk",
+          created,
+          model: modelKey,
+          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+        })}\n\n`,
+      );
+      res.write("data: [DONE]\n\n");
+    } else {
+      res.write(
+        `${JSON.stringify({
+          model: modelKey,
+          created_at: new Date().toISOString(),
+          message: { role: "assistant", content: text },
+          done: false,
+        })}\n`,
+      );
+      res.write(
+        `${JSON.stringify({
+          model: modelKey,
+          created_at: new Date().toISOString(),
+          message: { role: "assistant", content: "" },
+          done: true,
+        })}\n`,
+      );
+    }
+    res.end();
+    return;
+  }
+
+  if (isOai) {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      id,
+      object: "chat.completion",
+      created,
+      model: modelKey,
+      choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }],
+    }));
+    return;
+  }
+
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({
+    model: modelKey,
+    created_at: new Date().toISOString(),
+    message: { role: "assistant", content: text },
+    done: true,
+  }));
 }
 
 function waitForAcceptance(discovery, txId, timeoutMs) {
@@ -274,4 +336,8 @@ function providerInfo(provider) {
     rating: provider.rating ?? null,
     lastSeenAt: provider.lastSeenAt ?? null,
   };
+}
+
+function fingerprintMessages(messages) {
+  return JSON.stringify(messages.map((m) => ({ role: m.role, content: m.content })));
 }
