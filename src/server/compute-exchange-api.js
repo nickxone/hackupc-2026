@@ -73,6 +73,8 @@ async function handleRequest(
   res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 
+  console.log(`[http] ${req.method} ${url.pathname}`);
+
   if (req.method === "OPTIONS") {
     res.writeHead(204);
     res.end();
