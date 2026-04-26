@@ -21,13 +21,14 @@ export function createModelsHandler({ discovery }) {
 }
 
 export function createChatHandler({ ledger, discovery, pricePerRequest, acceptanceTimeoutMs = 15_000 }) {
-  let inFlight = false;
-  // Cache loaded delegated model per provider so the QVAC worker RPC stays alive between requests.
-  // Key: `${qvacTopic}:${qvacProviderPublicKey}`, value: { modelId, modelSrc }
+  // Serialize requests: allow 1 active + 1 queued. Reject beyond that with 429.
+  let chainTail = Promise.resolve();
+  let queueDepth = 0;
+  const MAX_QUEUE = 1;
+
   const modelCache = new Map();
 
   discovery.on("peerLeft", (peerId) => {
-    // Clear cached models for the departed provider so the next request reloads fresh.
     for (const [key] of modelCache) {
       if (key.includes(peerId)) modelCache.delete(key);
     }
@@ -48,15 +49,22 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
   }
 
   return async function onChat(res, body, isOai = false) {
-    if (inFlight) {
+    if (queueDepth >= MAX_QUEUE) {
       res.writeHead(429, { "Content-Type": "application/json" });
       res.end(JSON.stringify({
-        error: "Another inference request is already in progress. Please wait and retry.",
+        error: "Request queue full. Please wait and retry.",
       }));
       return;
     }
 
-    inFlight = true;
+    queueDepth++;
+    const mySlot = chainTail;
+    let releaseMySlot;
+    chainTail = new Promise((resolve) => { releaseMySlot = resolve; });
+
+    await mySlot;
+    queueDepth--;
+
     try {
       const wantsStreaming = body.stream !== false;
       const modelKey = body.model || config.defaultModelKey;
@@ -218,7 +226,7 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
         res.end();
       }
     } finally {
-      inFlight = false;
+      releaseMySlot();
     }
   };
 }
