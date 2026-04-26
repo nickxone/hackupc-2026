@@ -1,4 +1,4 @@
-import { loadDelegatedModel, runCompletion, unload } from "../core/qvac.js";
+import { loadDelegatedModel, runCompletion } from "../core/qvac.js";
 import { config, getModel, listModels } from "../config.js";
 
 export { listModels };
@@ -22,6 +22,30 @@ export function createModelsHandler({ discovery }) {
 
 export function createChatHandler({ ledger, discovery, pricePerRequest, acceptanceTimeoutMs = 15_000 }) {
   let inFlight = false;
+  // Cache loaded delegated model per provider so the QVAC worker RPC stays alive between requests.
+  // Key: `${qvacTopic}:${qvacProviderPublicKey}`, value: { modelId, modelSrc }
+  const modelCache = new Map();
+
+  discovery.on("peerLeft", (peerId) => {
+    // Clear cached models for the departed provider so the next request reloads fresh.
+    for (const [key] of modelCache) {
+      if (key.includes(peerId)) modelCache.delete(key);
+    }
+  });
+
+  async function getOrLoadModel(provider, model) {
+    const cacheKey = `${provider.qvacTopic}:${provider.qvacProviderPublicKey}:${model.key}`;
+    if (modelCache.has(cacheKey)) return modelCache.get(cacheKey).modelId;
+
+    const modelId = await loadDelegatedModel({
+      modelSrc: model.src,
+      topic: provider.qvacTopic,
+      providerPublicKey: provider.qvacProviderPublicKey,
+      timeoutMs: config.requestTimeoutMs,
+    });
+    modelCache.set(cacheKey, { modelId });
+    return modelId;
+  }
 
   return async function onChat(res, body, isOai = false) {
     if (inFlight) {
@@ -33,7 +57,6 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
     }
 
     inFlight = true;
-    let modelId = null;
     try {
       const wantsStreaming = body.stream !== false;
       const modelKey = body.model || config.defaultModelKey;
@@ -89,12 +112,7 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
         `[ledger] settled ${proposal.txId.slice(0, 8)} balance=${await ledger.balance()}`,
       );
 
-      modelId = await loadDelegatedModel({
-        modelSrc: model.src,
-        topic: provider.qvacTopic,
-        providerPublicKey: provider.qvacProviderPublicKey,
-        timeoutMs: config.requestTimeoutMs,
-      });
+      const modelId = await getOrLoadModel(provider, model);
 
       const history = truncateHistory(messages, model.contextTokens ?? 1024);
       const response = runCompletion({ modelId, history, stream: true });
@@ -200,9 +218,6 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
         res.end();
       }
     } finally {
-      if (modelId) {
-        await unload({ modelId }).catch(() => {});
-      }
       inFlight = false;
     }
   };
