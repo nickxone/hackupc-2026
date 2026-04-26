@@ -138,11 +138,18 @@ console.log(`\nWaiting for providers to join the network...`);
 
 async function shutdown(signal) {
   console.log(`\n[server] Received ${signal}; shutting down...`);
-  await api.stop?.().catch(() => {});
-  await discovery.stop().catch(() => {});
+  await api.stop?.().catch(() => { });
+  await discovery.stop().catch(() => { });
   await ratings.close();
-  await ledger.close().catch(() => {});
+  await ledger.close().catch(() => { });
   process.exit(0);
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] Unhandled rejection:", reason?.message ?? reason);
 });
 
 async function enrichPeersWithRatings(peers, ratings) {
