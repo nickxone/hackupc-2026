@@ -1,5 +1,5 @@
 {
-  "ledgerBootstrapKey": "97d354757030bef450b7d2e895de719d14e55f524319c9e3ddcc5a31528c1604",
+  "ledgerBootstrapKey": "dd20f334631e4ab4e830e50f6a1298629aae654fc1850fa523c1ea5f01d32a01",
   "initialCredits": 100,
   "pricePerRequest": 1,
   "tierPrices": {
@@ -7,5 +7,5 @@
     "2": 5,
     "3": 10
   },
-  "ratingsBootstrapKey": "531afe685b5eccbf28e90ee46a40e42d7737bbd713874e08802ab7ee53a62df6"
+  "ratingsBootstrapKey": "30bbf26dd0e64c36890c7114687c8fb65b164c2e73516d2c2145e097a1895826"
 }

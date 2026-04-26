@@ -1,8 +1,29 @@
 # Compute Exchange
 
-P2P LLM compute exchange prototype for HackUPC 2026.
+Peer-to-peer LLM compute marketplace prototype for HackUPC 2026.
 
-Peers advertise QVAC-backed model capacity over Hyperswarm, consumers discover providers, and a local HTTP proxy exposes OpenAI/Ollama-compatible chat routes. Credits are tracked in local JSON ledgers and are intended to reconcile with trust-based `creditAck` messages on a discovery side channel.
+Providers expose QVAC-backed models over a shared topic, consumers discover them over Hyperswarm, and a local HTTP daemon offers Ollama-compatible and OpenAI-compatible chat endpoints. Payments and reputation are tracked with Hypercore/Autobase-backed ledger and ratings data, not a centralized server.
+
+## What This Project Currently Does
+
+- Starts a provider that serves one or more local QVAC models.
+- Starts a local daemon on `127.0.0.1:11434`.
+- Discovers peers over Hyperswarm.
+- Delegates chat completions to a discovered provider.
+- Creates signed transfer proposals and waits for signed acceptances before inference.
+- Stores balances, transaction history, and ratings in local Hypercore-backed data directories.
+- Exposes compatibility routes for tools that speak Ollama or OpenAI chat APIs.
+
+## Main Entry Points
+
+The current supported flows are:
+
+- `pear run . serve` or `npm run provider`
+  Starts provider mode, joins discovery, announces served models, accepts incoming ledger transfer proposals, and serves QVAC inference.
+- `pear run . daemon` or `npm run server`
+  Starts the local HTTP daemon with peer discovery, chat delegation, ledger access, and ratings APIs.
+- `pear run . ask --model llama-1b "Hello"`
+  Sends a prompt through the local daemon to a discovered provider.
 
 ## Quick Start
 
@@ -12,7 +33,7 @@ Install dependencies:
 npm install
 ```
 
-Install/bootstrap Pear if `pear` is not on your `PATH`:
+Install or bootstrap Pear if needed:
 
 ```bash
 npm install -D pear
@@ -25,136 +46,151 @@ Start a provider in one terminal:
 PEER_NAME=alice pear run . serve
 ```
 
-Start the HTTP proxy in another terminal:
+Start the local daemon in another terminal:
 
 ```bash
-PEER_NAME=bob pear run scripts/server.js
+PEER_NAME=bob pear run . daemon
 ```
 
-Send an OpenAI-compatible chat request:
+Send an OpenAI-compatible request:
 
 ```bash
 curl -X POST http://127.0.0.1:11434/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model":"llama-1b","messages":[{"role":"user","content":"Say hello in 5 words."}]}'
+  -d '{
+    "model": "llama-1b",
+    "messages": [{"role": "user", "content": "Say hello in 5 words."}],
+    "stream": false
+  }'
 ```
 
-Or send an Ollama-compatible chat request:
+Send an Ollama-compatible request:
 
 ```bash
 curl -X POST http://127.0.0.1:11434/api/chat \
   -H "Content-Type: application/json" \
-  -d '{"model":"llama-1b","messages":[{"role":"user","content":"Say hello in 5 words."}]}'
+  -d '{
+    "model": "llama-1b",
+    "messages": [{"role": "user", "content": "Say hello in 5 words."}],
+    "stream": false
+  }'
 ```
 
-Useful CLI commands:
+List discovered peers:
 
 ```bash
-pear run . serve --models llama-1b
 pear run . peers
-pear run . balance
-pear run . ask --model llama-1b "Explain P2P inference"
-pear run . help
 ```
 
-Smoke tests and scripts:
+Check balances:
 
 ```bash
-pear run scripts/local-test.js
-pear run scripts/delegated-test.js
-pear run scripts/discovery-test.js
-pear run scripts/auto-consumer.js
-pear run scripts/e2e-test.js
+pear run . balance
 ```
 
-## Runtime Model
+Rate the last paid provider or a specific ledger account:
 
-- `pear run . serve` starts QVAC provider mode, pre-downloads served models, joins the QVAC topic, joins discovery, advertises model keys/tiers, and earns credits from matching `creditAck` messages.
-- `pear run scripts/server.js` starts the real local chat proxy on `127.0.0.1:11434`. It joins discovery as a consumer, chooses a provider for the requested model, delegates the request through QVAC, streams the response, spends credits locally, and attempts to send a `creditAck`.
-- `pear run . daemon` starts the generic HTTP API shell, but does not currently wire delegated chat. Use `pear run scripts/server.js` for the working chat bridge.
-- `pear run . ask` queries `/api/peers`, selects a matching provider, and delegates directly from the CLI. It streams output, but currently does not debit the ledger or send a credit acknowledgement.
+```bash
+pear run . rate 5
+pear run . rate <ledger-account-id> 5
+```
 
-## Repository Map
+## CLI Commands
 
-- `src/config.js` defines the QVAC/discovery topics, model catalog, default model, ledger config, and request timeout.
-- `src/topics.js` derives 64-char hex topics from human-readable names with SHA-256.
-- `src/ledger-config.js` contains the initial balance and per-token tier pricing.
-- `src/core/qvac.js` is the only wrapper around `@qvac/sdk`.
-- `src/core/discovery.js` implements the Hyperswarm JSON-lines discovery and `creditAck` channel.
-- `src/core/ledger.js` persists local balances and earn/spend logs under `data/<peerName>.ledger.json`.
-- `src/server/provider-runtime.js` owns provider startup, pre-download, discovery, ledger earn handling, and shutdown.
-- `src/server/compute-exchange-api.js` owns the HTTP API routes and compatibility response shapes.
-- `scripts/provider.js` starts provider mode.
-- `scripts/server.js` starts the working HTTP proxy and delegated chat flow.
-- `scripts/consumer.js` delegates to a known QVAC provider public key without discovery or credits.
-- `scripts/auto-consumer.js` discovers a provider, runs one prompt, spends credits, and sends `creditAck`.
-- `scripts/local-test.js`, `scripts/delegated-test.js`, `scripts/discovery-test.js`, and `scripts/e2e-test.js` are smoke tests.
-- `cli/index.js`, `cli/commands.js`, and `cli/render.js` implement the Pear-native CLI.
-- `qvac/worker.entry.mjs` and `qvac/addons.manifest.json` are generated QVAC worker assets required by Pear.
+Supported CLI commands in `pear run .`:
+
+- `daemon`
+- `serve`
+- `ask`
+- `peers`
+- `balance`
+- `rate`
+- `ratings`
+- `help`
+
+Examples:
+
+```bash
+pear run . serve --models llama-1b,qwen-1.7b
+pear run . daemon --port 11434
+pear run . ask --model qwen-1.7b "Summarize peer-to-peer inference."
+pear run . ratings
+```
+
+## HTTP API
+
+The daemon exposes these routes:
+
+- `GET /` health check
+- `GET /api/version` daemon version info
+- `GET /api/peers` discovered peers plus local peer id
+- `GET /api/balance` wallet/accounts/history view
+- `GET /api/ratings` ratings summary or ratings for one target
+- `POST /api/rate` submit a 1-5 rating
+- `GET /api/tags` placeholder Ollama tags route
+- `GET /v1/models` OpenAI-style model list
+- `POST /api/chat` Ollama-style chat
+- `POST /v1/chat/completions` OpenAI-style chat
+
+`/api/chat` streams NDJSON by default. `/v1/chat/completions` streams SSE by default.
 
 ## Models
 
-Configured models live in `src/config.js`:
+Configured in `src/config.js`:
 
-- `llama-1b`: `LLAMA_3_2_1B_INST_Q4_0`, tier `1`
-- `qwen-1.7b`: `QWEN3_1_7B_INST_Q4`, tier `3`
+- `llama-1b`: `Llama 3.2 1B (Q4)`, tier `1`
+- `qwen-1.7b`: `Qwen 3 1.7B (Q4)`, tier `3`
 
-Providers serve all configured models by default. Limit the set with either:
+Providers serve all configured models by default. Limit them with:
 
 ```bash
 MODELS=llama-1b pear run . serve
-pear run . serve --models llama-1b,qwen-1.7b
+pear run . serve --models llama-1b
 ```
 
-## HTTP Routes
+## Discovery, Payments, and Ratings
 
-Implemented by `startComputeExchangeApi`:
+- Peer discovery happens over a dedicated Hyperswarm topic.
+- Providers announce `peerName`, served models, `qvacTopic`, provider public key, and `ledgerAccountId`.
+- Consumers create signed transfer proposals before inference.
+- Providers sign transfer acceptances when the proposal targets their account.
+- Ratings are separate signed events broadcast over discovery.
+- Market defaults live in `config/market.json`.
 
-- `GET /` returns API status.
-- `GET /api/version` returns version metadata.
-- `GET /api/peers` returns discovered peers when `onGetPeers` is wired.
-- `GET /api/balance` returns local ledger state when `onGetBalance` is wired.
-- `POST /api/chat` streams Ollama-style NDJSON when `onChat` is wired.
-- `POST /v1/chat/completions` streams OpenAI-style SSE when `onChat` is wired.
+Current default pricing from `config/market.json`:
 
-Current placeholders:
+- Initial credits: `100`
+- Tier 1 price: `1`
+- Tier 2 price: `5`
+- Tier 3 price: `10`
 
-- `GET /api/tags` returns an empty model list placeholder.
-- `POST /api/rate` returns `501`; provider ratings are not persisted.
+## Data Layout
 
-## Discovery Protocol
+Runtime data is stored under `data/`:
 
-Discovery frames are newline-delimited JSON over a separate Hyperswarm topic.
+- `data/<peerName>/ledger` for ledger state
+- `data/<peerName>/ratings` for ratings state
 
-`announce` frames are sent on connection and every 10 seconds:
+Bootstrap keys for shared market state are configured in `config/market.json`.
 
-```json
-{"t":"announce","peerName":"alice","models":[{"id":"LLAMA_3_2_1B_INST_Q4_0","key":"llama-1b","tier":1}],"qvacTopic":"<hex>","qvacProviderPublicKey":"<hex>"}
-```
+## Project Map
 
-`creditAck` frames are sent by consumers after delegated completions:
+- `cli/` Pear CLI commands and terminal rendering
+- `src/server/provider-runtime.js` provider startup and ledger acceptance flow
+- `src/server/chat-handler.js` delegated chat flow used by the daemon
+- `src/server/compute-exchange-api.js` HTTP compatibility layer
+- `src/core/qvac.js` QVAC wrapper utilities
+- `src/core/discovery.js` Hyperswarm peer discovery and event transport
+- `src/ledger/` Hypercore-backed ledger protocol and node logic
+- `src/ratings/` ratings protocol and node logic
+- `scripts/provider.js` standalone provider script
+- `scripts/server.js` standalone daemon script
+- `scripts/init-ledger.js` bootstrap ledger and ratings stores
 
-```json
-{"t":"creditAck","to":"<discovery-peer-id>","tokens":128,"credits":13,"model":"llama-1b"}
-```
+## Notes and Caveats
 
-Only a peer whose discovery id matches `to` processes the acknowledgement.
-
-## Credit Model
-
-- Ledger files are local only.
-- New ledgers start at `100` credits.
-- Pricing is `ceil(tokens * pricePerTokenPerTier * tier)`.
-- Current `pricePerTokenPerTier` is `0.1`.
-- The working HTTP server currently computes credits as `ceil(tokens / 10) * tier`, which is equivalent to the current config.
-- Credit acknowledgements are trust-based; there is no shared ledger, signing, consensus, or fraud prevention.
-- `auto-consumer.js` sends `creditAck` to the provider discovery peer id. `scripts/server.js` currently passes the provider QVAC public key, so provider-side earning through the HTTP path should be audited before demoing ledger symmetry.
-
-## Important Notes
-
-- Run app entrypoints through Pear (`pear run . ...` or `pear run scripts/<entry>.js`). Scripts import Bare modules and generated QVAC worker assets.
-- Hyperswarm topics must be exactly 32 bytes, represented as 64 hex chars. Use `src/topics.js` and `src/config.js`.
-- Provider and consumer should run in separate processes. QVAC delegated provider and delegated consumer paths can deadlock when combined in one process.
-- Every QVAC entrypoint must import `qvac/worker.entry.mjs` before SDK use. Re-run `npx qvac bundle sdk` after changing `qvac.config.json` or upgrading `@qvac/sdk`.
-- First provider boot can download large model files into `~/.qvac/models/`.
-- DHT discovery can take 10-30 seconds and may fail on restrictive WiFi. A hotspot or controlled network is useful for demos.
+- Run the app through Pear for the main flows. The QVAC entrypoints depend on Pear/Bare-compatible runtime behavior.
+- First provider startup may download model assets into `~/.qvac/models/`.
+- Discovery can take a few seconds depending on network conditions.
+- `qvac/worker.entry.mjs` must be loaded before QVAC SDK usage.
+- Some scripts in `scripts/` still reflect earlier prototype flows based on JSON ledgers and `creditAck`. Treat `serve`, `daemon`, the CLI, and the server/provider runtime under `src/server/` as the current implementation.
