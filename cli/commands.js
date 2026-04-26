@@ -114,8 +114,16 @@ const commandDefinitions = [
         onGetBalance: async () => ({ balance: await ledger.balance(), log: await ledger.history() }),
         onRate: async ({ provider, provider_id: providerIdAlt, score }) => {
           const requested = String(provider ?? providerIdAlt ?? "").trim();
-          const target = resolveRatingTarget(discovery.listPeers(), requested);
-          if (!target) return { accepted: false, error: "Missing provider ledger account id to rate." };
+          const fallback = requested ? null : await ledger.lastRecipientAccount();
+          const target = requested
+            ? resolveRatingTarget(discovery.listPeers(), requested)
+            : fallback?.toAccount ?? null;
+          if (!target) {
+            return {
+              accepted: false,
+              error: "No rating target provided and no previous outgoing payment was found.",
+            };
+          }
 
           const event = await ratings.createRating({ target, score: Number(score) });
           discovery.broadcastRatingEvent(event);
@@ -128,6 +136,7 @@ const commandDefinitions = [
             average: await ratings.averageFor(target),
             count: values.length,
             rating: event,
+            inferredFromLastPayment: !requested,
           };
         },
         onGetRatings: async ({ target }) => {
