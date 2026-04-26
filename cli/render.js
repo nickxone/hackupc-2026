@@ -79,10 +79,20 @@ export function renderUsage({ commands }) {
   return lines.join("\n");
 }
 
-export function renderDaemonStarted({ url, peerScanMs, peerName, peerId, ledgerAccountId }) {
-  return [
-    renderBrandHeader(),
-    "",
+export function renderDaemonStarted({
+  url,
+  peerScanMs,
+  peerName,
+  peerId,
+  ledgerAccountId,
+  includeHeader = true,
+}) {
+  const lines = [];
+  if (includeHeader) {
+    lines.push(renderBrandHeader(), "");
+  }
+
+  lines.push(
     `${statusPill("ready")} ${color("bold", "daemon online")}`,
     "",
     `${color("cyan", "Peer")}       ${peerName ?? "unknown"} ${color("dim", `(${peerId ?? "unknown"})`)}`,
@@ -93,7 +103,8 @@ export function renderDaemonStarted({ url, peerScanMs, peerName, peerId, ledgerA
     `${color("green", "Ready for")} chat, peers, balance, and ratings`,
     `${color("yellow", "Tip")} start a provider with \`pear run . serve\``,
     color("dim", "Press Ctrl+C to stop."),
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 export function renderProviderStarted({
@@ -103,10 +114,14 @@ export function renderProviderStarted({
   publicKey,
   topic,
   servedModels,
+  includeHeader = true,
 }) {
-  const lines = [
-    renderBrandHeader(),
-    "",
+  const lines = [];
+  if (includeHeader) {
+    lines.push(renderBrandHeader(), "");
+  }
+
+  lines.push(
     `${statusPill("ready")} ${color("bold", "provider online")}`,
     `${color("cyan", "Peer")}        ${color("bold", peerName)} ${color("dim", `(${peerId})`)}`,
     `${color("cyan", "Ledger")}      ${ledgerAccountId ?? "unknown"}`,
@@ -116,7 +131,7 @@ export function renderProviderStarted({
     `${color("green", "Serving")} ${servedModels.length} model${servedModels.length === 1 ? "" : "s"}`,
     "",
     color("bold", "Models:"),
-  ];
+  );
 
   for (const model of servedModels) {
     lines.push(`  ${color("magenta", "◆")} ${color("bold", model.key)} ${color("dim", `tier ${model.tier}`)}`);
@@ -418,7 +433,7 @@ export function renderError(message) {
   ].join("\n");
 }
 
-function renderBrandHeader() {
+export function renderBrandHeader() {
   const lemur = [
     "                 ,,",
     "                ==",

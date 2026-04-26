@@ -4,6 +4,7 @@ import {
   renderAskResult,
   renderAskPlan,
   renderBalance,
+  renderBrandHeader,
   renderCommandResult,
   renderDaemonStarted,
   renderPeers,
@@ -20,12 +21,23 @@ const ASK_STRATEGIES = new Set(["cheapest", "best", "fastest", "rated"]);
 const commandDefinitions = [
   {
     name: "daemon",
-    usage: "daemon [--host addr] [--port n]",
+    usage: "daemon [--host addr] [--port n] [--debug]",
     description: "Start the local Compute Exchange API.",
     async run(args) {
       const options = parseDaemonArgs(args);
-      await import("../qvac/worker.entry.mjs");
       const { default: process } = await import("bare-process");
+      if (!options.debug) silenceSdkConsoleLogs();
+
+      console.log(renderBrandHeader());
+      console.log("");
+      const stopLoading = options.debug ? null : startLoadingAnimation("Starting daemon", process);
+      let api;
+      let discovery;
+      let ledger;
+      let ratings;
+      let peerName;
+      try {
+      await import("../qvac/worker.entry.mjs");
       const { resolve } = await import("bare-path");
       const { startComputeExchangeApi } = await import("../src/server/compute-exchange-api.js");
       const { Discovery } = await import("../src/core/discovery.js");
@@ -36,8 +48,8 @@ const commandDefinitions = [
       const { default: os } = await import("bare-os");
       const { hostname } = os;
 
-      const peerName = (process.env?.PEER_NAME || `${hostname()}-daemon`).replace(/[^a-z0-9_-]/gi, "-");
-      const ledger = new LedgerNode({
+      peerName = (process.env?.PEER_NAME || `${hostname()}-daemon`).replace(/[^a-z0-9_-]/gi, "-");
+      ledger = new LedgerNode({
         rootDir: resolve(`data/${peerName}/ledger`),
         name: peerName,
       });
@@ -45,14 +57,14 @@ const commandDefinitions = [
       const ledgerRegistration = await ledger.announceAccount();
       ledger.startBackgroundUpdates();
 
-      const ratings = new RatingsNode({
+      ratings = new RatingsNode({
         rootDir: resolve(`data/${peerName}/ratings`),
         name: peerName,
       });
       await ratings.ready();
       ratings.startBackgroundUpdates();
 
-      const discovery = new Discovery({
+      discovery = new Discovery({
         topicHex: config.discoveryTopic,
         peerName,
         models: [],
@@ -100,7 +112,6 @@ const commandDefinitions = [
         }
       });
 
-      let api;
       setupDaemonCleanup({
         getApi: () => api,
         discovery,
@@ -164,12 +175,16 @@ const commandDefinitions = [
           pricing: config.ledger,
         }),
       });
+      } finally {
+        if (stopLoading) stopLoading();
+      }
       return {
         output: renderDaemonStarted({
           ...api,
           peerName,
           peerId: discovery.myPeerId(),
           ledgerAccountId: ledger.accountId,
+          includeHeader: false,
         }),
         keepAlive: true,
       };
@@ -177,14 +192,12 @@ const commandDefinitions = [
   },
   {
     name: "serve",
-    usage: "serve [--models keys] [--peer-name name] [--topic hex] [--skip-download]",
+    usage: "serve [--models keys] [--peer-name name] [--topic hex] [--skip-download] [--debug]",
     description: "Start provider mode and advertise served models.",
     async run(args) {
-      await import("../qvac/worker.entry.mjs");
       const { default: process } = await import("bare-process");
       const { config } = await import("../src/config.js");
       const { default: os } = await import("bare-os");
-      const { startProviderRuntime } = await import("../src/server/provider-runtime.js");
       const startupLogBuffer = [];
       let liveLogs = false;
       const bufferedLog = (...parts) => {
@@ -203,20 +216,33 @@ const commandDefinitions = [
         defaultModelKeys: Object.keys(config.models).join(","),
         env: process.env,
       });
-      const provider = await startProviderRuntime({
-        topic: options.topic,
-        peerName: options.peerName,
-        modelKeys: options.modelKeys,
-        predownload: options.predownload,
-        log: bufferedLog,
-        error: bufferedError,
-      });
+      liveLogs = options.debug;
+      if (!options.debug) silenceSdkConsoleLogs();
+
+      console.log(renderBrandHeader());
+      console.log("");
+      const stopLoading = options.debug ? null : startLoadingAnimation("Starting provider", process);
+      let provider;
+      try {
+        await import("../qvac/worker.entry.mjs");
+        const { startProviderRuntime } = await import("../src/server/provider-runtime.js");
+        provider = await startProviderRuntime({
+          topic: options.topic,
+          peerName: options.peerName,
+          modelKeys: options.modelKeys,
+          predownload: options.predownload,
+          log: bufferedLog,
+          error: bufferedError,
+        });
+      } finally {
+        if (stopLoading) stopLoading();
+      }
       liveLogs = true;
 
       setupProviderCleanup({ provider, process });
 
       return {
-        output: renderProviderStarted(provider),
+        output: renderProviderStarted({ ...provider, includeHeader: false }),
         keepAlive: true,
       };
     },
@@ -516,6 +542,7 @@ function parseDaemonArgs(args) {
     host: "127.0.0.1",
     port: 11434,
     peerScanMs: 1_000,
+    debug: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -526,6 +553,8 @@ function parseDaemonArgs(args) {
       options.port = readIntegerOption(args, ++i, "--port");
     } else if (arg === "--peer-scan-ms") {
       options.peerScanMs = readIntegerOption(args, ++i, "--peer-scan-ms");
+    } else if (arg === "--debug") {
+      options.debug = true;
     } else {
       throw new Error(`Unknown daemon option: ${arg}`);
     }
@@ -543,6 +572,7 @@ function parseServeArgs(args, { defaultTopic, defaultPeerName, defaultModelKeys,
       .map((key) => key.trim())
       .filter(Boolean),
     predownload: true,
+    debug: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -558,6 +588,8 @@ function parseServeArgs(args, { defaultTopic, defaultPeerName, defaultModelKeys,
         .filter(Boolean);
     } else if (arg === "--skip-download") {
       options.predownload = false;
+    } else if (arg === "--debug") {
+      options.debug = true;
     } else {
       throw new Error(`Unknown serve option: ${arg}`);
     }
@@ -894,6 +926,60 @@ function setupProviderCleanup({ provider, process }) {
 
   process.on("SIGINT", () => cleanup("SIGINT"));
   process.on("SIGTERM", () => cleanup("SIGTERM"));
+}
+
+function silenceSdkConsoleLogs() {
+  const methods = ["log", "info", "warn", "error", "debug"];
+  const original = {};
+
+  for (const method of methods) {
+    const current = console[method];
+    if (typeof current !== "function") continue;
+    original[method] = current;
+    console[method] = (...parts) => {
+      const line = parts.map((part) => String(part)).join(" ");
+      if (line.startsWith("[sdk:client]") || line.startsWith("[sdk:server]")) return;
+      return original[method].apply(console, parts);
+    };
+  }
+}
+
+function startLoadingAnimation(label, process) {
+  const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  let index = 0;
+  let active = true;
+  let lastLength = 0;
+  const startedAt = Date.now();
+
+  const write = (text) => {
+    const stdout = process?.stdout ?? globalThis.process?.stdout;
+    if (stdout && typeof stdout.write === "function") {
+      stdout.write(text);
+    }
+  };
+
+  const render = () => {
+    if (!active) return;
+    const frame = c("magenta", frames[index % frames.length]);
+    const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    const dotCount = (Math.floor(index / 4) % 4) + 1;
+    const dots = c("green", ".".repeat(dotCount).padEnd(4, " "));
+    const line = `${frame} ${c("bold", label)} ${dots} ${c("dim", `${elapsed}s`)}`;
+    const padding = lastLength > line.length ? " ".repeat(lastLength - line.length) : "";
+    write(`\r${line}${padding}`);
+    lastLength = line.length;
+    index += 1;
+  };
+
+  render();
+  const interval = setInterval(render, 90);
+
+  return () => {
+    if (!active) return;
+    active = false;
+    clearInterval(interval);
+    write(`\r${" ".repeat(lastLength)}\r`);
+  };
 }
 
 function formatDiscoveredPeerSummary(peer, ratingSummary = { average: null, count: 0 }) {
