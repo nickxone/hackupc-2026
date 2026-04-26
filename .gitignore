@@ -16,3 +16,11 @@ data/
 .codex
 .vscode/
 .idea/
+
+.claude
+CLAUDE.md
+GEMINI.md
+errors.md
+llms-full.txt
+plan.md
+tmp-about-project.md

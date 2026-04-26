@@ -306,7 +306,7 @@ function providerInfo(provider) {
     rating: provider.rating ?? null,
     lastSeenAt: provider.lastSeenAt ?? null,
   };
-}
+  }
 
 function estimateTokens(messages) {
   return messages.reduce((sum, m) => sum + Math.ceil((m.content || "").length / 4), 0);

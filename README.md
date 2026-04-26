@@ -2,7 +2,7 @@
 
 <p align="center"><strong>Peer-to-peer LLM compute for hackathon demos.</strong></p>
 
-<div align="center">
+<div align="left">
 
 ```text
                  ,,   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
