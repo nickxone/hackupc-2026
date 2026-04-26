@@ -15,7 +15,8 @@ const DEFAULT_INITIAL_CREDITS = 100;
 const DEFAULT_PRICE_PER_REQUEST = 1;
 
 async function main() {
-  const rootDir = resolve(process.argv[2] || "data/_bootstrap");
+  const rootArg = getRootArg();
+  const rootDir = resolve(rootArg || "data/_bootstrap");
   mkdirSync(rootDir, { recursive: true });
 
   const key = await initBootstrap(rootDir);
@@ -76,6 +77,16 @@ async function readOrCreate(rootDir) {
 
 function isMovedUnsafelyError(err) {
   return String(err?.message || err).includes("Invalid device file, was moved unsafely");
+}
+
+function getRootArg() {
+  const args = process.argv.slice(2);
+  for (const arg of args) {
+    if (!arg) continue;
+    if (arg.endsWith(".js")) continue;
+    return arg;
+  }
+  return null;
 }
 
 main().catch((err) => {
