@@ -36,7 +36,7 @@ const commandDefinitions = [
       const { default: os } = await import("bare-os");
       const { hostname } = os;
 
-      const peerName = process.env?.PEER_NAME || hostname();
+      const peerName = (process.env?.PEER_NAME || hostname()).replace(/[^a-z0-9_-]/gi, "-");
       const ledger = new LedgerNode({
         rootDir: resolve(`data/${peerName}/ledger`),
         name: peerName,
@@ -199,7 +199,7 @@ const commandDefinitions = [
       };
       const options = parseServeArgs(args, {
         defaultTopic: config.qvacTopic,
-        defaultPeerName: process.env.PEER_NAME || os.hostname(),
+        defaultPeerName: (process.env.PEER_NAME || os.hostname()).replace(/[^a-z0-9_-]/gi, "-"),
         defaultModelKeys: Object.keys(config.models).join(","),
         env: process.env,
       });
