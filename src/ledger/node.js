@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "bare-fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "bare-fs";
 import { join } from "bare-path";
 import Autobase from "autobase";
 import Corestore from "corestore";
@@ -177,6 +177,64 @@ export class LedgerNode {
   async history() {
     await this.update();
     return readHistory(this.view);
+  }
+
+  async accountHistory(accountId = this.accountId) {
+    const history = await this.history();
+    const accountIds = Array.isArray(accountId) ? new Set(accountId) : new Set([accountId]);
+    return history.filter(({ value }) => {
+      if (!value || typeof value !== "object") return false;
+      if (value.type === "initial-credit") return accountIds.has(value.toAccount);
+      if (value.type === "transfer") {
+        return accountIds.has(value.fromAccount) || accountIds.has(value.toAccount);
+      }
+      return false;
+    });
+  }
+
+  async localMachineBalance(dataRootDir) {
+    const accounts = this.localMachineAccounts(dataRootDir);
+    const balances = [];
+    let total = 0;
+
+    for (const account of accounts) {
+      const balance = await this.balanceFor(account.accountId);
+      balances.push({ ...account, balance });
+      total += balance;
+    }
+
+    return { balance: total, accounts: balances };
+  }
+
+  localMachineAccounts(dataRootDir) {
+    const byId = new Map();
+    const addAccount = (account) => {
+      if (!account?.accountId) return;
+      byId.set(account.accountId, {
+        name: account.name ?? shortName(account.accountId),
+        accountId: account.accountId,
+      });
+    };
+
+    addAccount(this.account);
+
+    if (!dataRootDir || !existsSync(dataRootDir)) return [...byId.values()];
+
+    for (const entry of readdirSync(dataRootDir)) {
+      const accountFile = join(dataRootDir, entry, "ledger", "account.json");
+      if (!existsSync(accountFile)) continue;
+      try {
+        addAccount(readJson(accountFile));
+      } catch {
+      }
+    }
+
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async balanceFor(accountId) {
+    await this.update();
+    return computeBalance(this.view, accountId);
   }
 
   async lastRecipientAccount() {

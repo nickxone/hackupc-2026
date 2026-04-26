@@ -129,7 +129,15 @@ const commandDefinitions = [
           peerId: discovery.myPeerId(),
           peers: await enrichPeersWithRatings(discovery.listPeers(), ratings),
         }),
-        onGetBalance: async () => ({ balance: await ledger.balance(), log: await ledger.history() }),
+        onGetBalance: async () => {
+          const wallet = await ledger.localMachineBalance(resolve("data"));
+          return {
+            accountId: ledger.accountId,
+            accounts: wallet.accounts,
+            balance: wallet.balance,
+            log: await ledger.accountHistory(wallet.accounts.map((account) => account.accountId)),
+          };
+        },
         onRate: async ({ provider, provider_id: providerIdAlt, score }) => {
           const requested = String(provider ?? providerIdAlt ?? "").trim();
           const fallback = requested ? null : await ledger.lastRecipientAccount();

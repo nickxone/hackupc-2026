@@ -125,8 +125,8 @@ async function handleRequest(
 
   if (req.method === "GET" && url.pathname === "/api/balance") {
     if (onGetBalance) {
-      const { balance, log } = await onGetBalance();
-      return sendJson(res, 200, { balance, log });
+      const payload = await onGetBalance();
+      return sendJson(res, 200, payload);
     }
     return sendJson(res, 200, {
       balance: null,

@@ -247,31 +247,110 @@ function formatPeerRating(peer) {
   return `${renderStars(peer.rating)} ${Number(peer.rating).toFixed(2)}/5 ${color("dim", `(${count} ${countLabel})`)}`;
 }
 
-export function renderBalance({ balance, log = [] }) {
+export function renderBalance({ accountId, accounts = [], balance, log = [] }) {
+  const accountIds = normalizeAccountIds({ accountId, accounts });
   const lines = [
     renderTitle("Balance"),
     "",
-    `${statusPill("ready")} wallet`,
+    `${statusPill("ready")} machine wallet`,
+    accountIds.length > 0 ? `${color("cyan", "Accounts")} ${accountIds.length}` : null,
     `${color("cyan", "Credits")}  ${balance ?? "unknown"}`,
     "",
-  ];
+  ].filter((line) => line != null);
+
+  if (accounts.length > 0) {
+    lines.push(color("bold", "Local accounts:"));
+    for (const account of accounts) {
+      lines.push(`- ${account.name ?? shortId(account.accountId)} ${color("dim", shortId(account.accountId))}: ${account.balance ?? "unknown"} credits`);
+    }
+    lines.push("");
+  }
 
   if (log.length === 0) {
     lines.push("No ledger events yet.");
     return lines.join("\n");
   }
 
-  lines.push(color("bold", "Recent events:"));
-  for (const event of log.slice(-10).reverse()) {
-    const type = event.type ?? "event";
-    const credits = event.credits == null ? "unknown credits" : `${event.credits} credits`;
-    const model = event.model ? ` model=${event.model}` : "";
-    const peer = event.to ?? event.from ?? event.provider ?? "";
-    const peerPart = peer ? ` peer=${peer}` : "";
-    lines.push(`- ${formatTime(event.at ?? event.createdAt ?? event.time)} ${type}: ${credits}${model}${peerPart}`);
+  lines.push(color("bold", "Recent local events:"));
+  const recent = [...log]
+    .sort((a, b) => ledgerEventTime(b) - ledgerEventTime(a))
+    .slice(0, 10);
+  if (recent.length === 0) {
+    lines.push("No wallet ledger events yet.");
+    return lines.join("\n");
+  }
+
+  for (const entry of recent) {
+    lines.push(`- ${formatLedgerEvent(entry, accountIds)}`);
   }
 
   return lines.join("\n");
+}
+
+function normalizeAccountIds({ accountId, accounts }) {
+  const ids = new Set();
+  if (accountId) ids.add(accountId);
+  for (const account of accounts ?? []) {
+    if (account?.accountId) ids.add(account.accountId);
+  }
+  return [...ids];
+}
+
+function ledgerEventTime(entry) {
+  const event = entry?.value ?? entry;
+  const time = event?.acceptedAt ?? event?.createdAt ?? event?.time ?? event?.at;
+  const millis = time ? Date.parse(time) : NaN;
+  return Number.isFinite(millis) ? millis : 0;
+}
+
+function formatLedgerEvent(entry, accountIds) {
+  const event = entry?.value ?? entry;
+  const ids = new Set(Array.isArray(accountIds) ? accountIds : [accountIds]);
+  if (!event || typeof event !== "object") return "unknown ledger event";
+
+  if (event.type === "initial-credit") {
+    const direction = ids.has(event.toAccount) ? "+" : "";
+    return [
+      formatTime(event.createdAt),
+      "initial credit:",
+      `${direction}${event.amount} credits`,
+      `account=${shortId(event.toAccount)}`,
+    ].join(" ");
+  }
+
+  if (event.type === "transfer") {
+    const fromLocal = ids.has(event.fromAccount);
+    const toLocal = ids.has(event.toAccount);
+    const direction = toLocal && !fromLocal ? "+" : fromLocal && !toLocal ? "-" : "";
+    const scope = fromLocal || toLocal ? "local" : "external";
+    const memo = parseLedgerMemo(event.memo);
+    const parts = [
+      formatTime(event.acceptedAt ?? event.createdAt),
+      "transfer:",
+      `${direction}${event.amount} credits`,
+      `[${scope}]`,
+      `from=${shortId(event.fromAccount)}`,
+      `to=${shortId(event.toAccount)}`,
+    ];
+    if (memo.model) parts.push(`model=${memo.model}`);
+    if (memo.prompt) parts.push(`prompt="${memo.prompt}"`);
+    return parts.join(" ");
+  }
+
+  return `${formatTime(event.createdAt ?? event.acceptedAt)} ${event.type ?? "event"}`;
+}
+
+function parseLedgerMemo(memo) {
+  if (!memo) return {};
+  try {
+    const parsed = JSON.parse(memo);
+    return {
+      model: parsed.model ?? null,
+      prompt: typeof parsed.prompt === "string" ? truncate(parsed.prompt, 48) : null,
+    };
+  } catch {
+    return { prompt: truncate(String(memo), 48) };
+  }
 }
 
 export function renderRateResult({
@@ -505,6 +584,17 @@ function stripAnsi(text) {
 function formatTime(ts) {
   if (!ts) return "unknown";
   return new Date(ts).toISOString();
+}
+
+function shortId(value) {
+  if (!value) return "unknown";
+  const text = String(value);
+  return text.length > 12 ? `${text.slice(0, 12)}...` : text;
+}
+
+function truncate(value, maxLength) {
+  const text = String(value);
+  return text.length > maxLength ? `${text.slice(0, maxLength - 3)}...` : text;
 }
 
 function formatCreditEstimate(model) {
