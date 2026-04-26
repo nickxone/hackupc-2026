@@ -52,6 +52,7 @@ export function createChatHandler({ ledger, discovery, pricing, acceptanceTimeou
 
   return async function onChat(res, body, isOai = false) {
     const fingerprint = fingerprintMessages(body.messages || []);
+    console.log(`[chat] incoming fingerprint="${fingerprint.slice(0, 80)}" cached=${responseCache.has(fingerprint)} pending=${pendingRequests.has(fingerprint)} inFlight=${inFlightDone !== null}`);
 
     // Return cached response if the same prompt was answered recently
     const cached = responseCache.get(fingerprint);
@@ -421,7 +422,8 @@ function providerInfo(provider) {
 }
 
 function fingerprintMessages(messages) {
-  return JSON.stringify(messages.map((m) => ({ role: m.role, content: m.content })));
+  const last = [...messages].reverse().find((m) => m.role === "user");
+  return last?.content ?? "";
 }
 
 function estimateTokens(messages) {
