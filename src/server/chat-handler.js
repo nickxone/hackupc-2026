@@ -35,6 +35,7 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
     inFlight = true;
     let modelId = null;
     try {
+      const wantsStreaming = body.stream !== false;
       const modelKey = body.model || config.defaultModelKey;
       const model = getModel(modelKey);
 
@@ -96,61 +97,99 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
 
       const history = truncateHistory(messages, model.contextTokens ?? 1024);
       const response = runCompletion({ modelId, history, stream: true });
-
-      res.writeHead(200, {
-        "Content-Type": isOai ? "text/event-stream" : "application/x-ndjson",
-        "Cache-Control": "no-cache",
-        Connection: "keep-alive",
-      });
-
+      const providerMeta = providerInfo(provider);
       const id = `chatcmpl-${Math.random().toString(36).slice(2)}`;
-      for await (const token of response.tokenStream) {
+      const created = Math.floor(Date.now() / 1000);
+
+      if (wantsStreaming) {
+        res.writeHead(200, {
+          "Content-Type": isOai ? "text/event-stream" : "application/x-ndjson",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        });
+
+        for await (const token of response.tokenStream) {
+          if (isOai) {
+            res.write(
+              `data: ${JSON.stringify({
+                id,
+                object: "chat.completion.chunk",
+                created,
+                model: model.key,
+                choices: [{ index: 0, delta: { content: token }, finish_reason: null }],
+              })}\n\n`,
+            );
+          } else {
+            res.write(
+              `${JSON.stringify({
+                model: model.key,
+                created_at: new Date().toISOString(),
+                message: { role: "assistant", content: token },
+                done: false,
+              })}\n`,
+            );
+          }
+        }
+
         if (isOai) {
           res.write(
             `data: ${JSON.stringify({
               id,
               object: "chat.completion.chunk",
-              created: Math.floor(Date.now() / 1000),
+              created,
               model: model.key,
-              choices: [{ index: 0, delta: { content: token }, finish_reason: null }],
+              choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
             })}\n\n`,
           );
+          res.write("data: [DONE]\n\n");
         } else {
           res.write(
             `${JSON.stringify({
               model: model.key,
               created_at: new Date().toISOString(),
-              message: { role: "assistant", content: token },
-              done: false,
+              message: { role: "assistant", content: "" },
+              done: true,
+              provider: providerMeta,
+              tx: { txId: proposal.txId, amount },
             })}\n`,
           );
         }
+        res.end();
+        return;
+      }
+
+      let content = "";
+      for await (const token of response.tokenStream) {
+        content += token;
       }
 
       if (isOai) {
-        res.write(
-          `data: ${JSON.stringify({
-            id,
-            object: "chat.completion.chunk",
-            created: Math.floor(Date.now() / 1000),
-            model: model.key,
-            choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-          })}\n\n`,
-        );
-        res.write("data: [DONE]\n\n");
-      } else {
-        res.write(
-          `${JSON.stringify({
-            model: model.key,
-            created_at: new Date().toISOString(),
-            message: { role: "assistant", content: "" },
-            done: true,
-            provider: providerInfo(provider),
-            tx: { txId: proposal.txId, amount },
-          })}\n`,
-        );
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          id,
+          object: "chat.completion",
+          created,
+          model: model.key,
+          choices: [{
+            index: 0,
+            message: { role: "assistant", content },
+            finish_reason: "stop",
+          }],
+          provider: providerMeta,
+          tx: { txId: proposal.txId, amount },
+        }));
+        return;
       }
-      res.end();
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        model: model.key,
+        created_at: new Date().toISOString(),
+        message: { role: "assistant", content },
+        done: true,
+        provider: providerMeta,
+        tx: { txId: proposal.txId, amount },
+      }));
     } catch (err) {
       console.error("[chat] Error:", err?.message ?? err);
       if (!res.headersSent) {
