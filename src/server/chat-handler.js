@@ -21,7 +21,18 @@ export function createModelsHandler({ discovery }) {
 }
 
 export function createChatHandler({ ledger, discovery, pricePerRequest, acceptanceTimeoutMs = 15_000 }) {
+  let inFlight = false;
+
   return async function onChat(res, body, isOai = false) {
+    if (inFlight) {
+      res.writeHead(429, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({
+        error: "Another inference request is already in progress. Please wait and retry.",
+      }));
+      return;
+    }
+
+    inFlight = true;
     let modelId = null;
     try {
       const modelKey = body.model || config.defaultModelKey;
@@ -152,6 +163,7 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
       if (modelId) {
         await unload({ modelId }).catch(() => {});
       }
+      inFlight = false;
     }
   };
 }
