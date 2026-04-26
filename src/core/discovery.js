@@ -36,6 +36,7 @@ export class Discovery {
       ledgerRegister: [],
       ledgerProposal: [],
       ledgerAcceptance: [],
+      rating: [],
     };
     this.announceInterval = null;
     this.refreshInterval = null;
@@ -119,6 +120,16 @@ export class Discovery {
     }
   }
 
+  broadcastRatingEvent(event) {
+    const line = JSON.stringify({ t: "rating", event }) + "\n";
+    for (const conn of this.conns.values()) {
+      try {
+        conn.write(line);
+      } catch {
+      }
+    }
+  }
+
   #onConnection(conn, info) {
     const peerId = info.publicKey.toString("hex");
     console.log(`PEER_CONNECTED ${peerId.slice(0, 12)}`);
@@ -175,6 +186,8 @@ export class Discovery {
       this.handlers.ledgerProposal.forEach((h) => h({ from: peerId, event: msg.event }));
     } else if (msg.t === "ledgerAcceptance" && msg.event) {
       this.handlers.ledgerAcceptance.forEach((h) => h({ from: peerId, event: msg.event }));
+    } else if (msg.t === "rating" && msg.event) {
+      this.handlers.rating.forEach((h) => h({ from: peerId, event: msg.event }));
     }
   }
 

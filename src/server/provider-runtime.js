@@ -9,6 +9,7 @@ import {
 } from "../core/qvac.js";
 import { Discovery } from "../core/discovery.js";
 import { LedgerNode } from "../ledger/node.js";
+import { RatingsNode } from "../ratings/node.js";
 import { config, getModel, listModels } from "../config.js";
 
 const { hostname } = os;
@@ -35,10 +36,18 @@ export async function startProviderRuntime({
     name: peerName,
   });
   await ledger.ready();
+  ledger.startBackgroundUpdates();
   const ledgerRegistration = await ledger.announceAccount();
   log(
     `[ledger] ${peerName} accountId=${ledger.accountId.slice(0, 12)} balance=${await ledger.balance()}`,
   );
+
+  const ratings = new RatingsNode({
+    rootDir: resolve(`data/${peerName}/ratings`),
+    name: peerName,
+  });
+  await ratings.ready();
+  ratings.startBackgroundUpdates();
 
   if (predownload) {
     log("Pre-downloading served models so first inference is hot...");
@@ -104,6 +113,14 @@ export async function startProviderRuntime({
     }
   });
 
+  discovery.on("rating", async ({ event }) => {
+    try {
+      await ratings.ingestEvent(event);
+    } catch (err) {
+      error(`[ratings] failed to ingest rating: ${err?.message ?? err}`);
+    }
+  });
+
   discovery.on("peerLeft", (peerId) => {
     log(`[discovery] peer left ${peerId.slice(0, 12)}`);
   });
@@ -122,6 +139,7 @@ export async function startProviderRuntime({
       await discovery.stop();
       await stopProvider({ topic });
       await shutdown();
+      await ratings.close();
       await ledger.close();
     } catch (err) {
       error("Cleanup error:", err?.message ?? err);
@@ -137,6 +155,7 @@ export async function startProviderRuntime({
     peerId: discovery.myPeerId(),
     discovery,
     ledger,
+    ratings,
     stop,
   };
 }

@@ -33,7 +33,8 @@ export function renderUsage({ commands }) {
   );
   lines.push("  pear run . peers");
   lines.push("  pear run . balance");
-  lines.push("  pear run . rate <provider-id> 5");
+  lines.push("  pear run . rate <ledger-account-id> 5");
+  lines.push("  pear run . ratings");
 
   return lines.join("\n");
 }
@@ -57,6 +58,7 @@ export function renderDaemonStarted({ url, peerScanMs }) {
     "- GET  /api/peers",
     "- GET  /api/balance",
     "- POST /api/rate",
+    "- GET  /api/ratings",
     "",
     "Generation routes currently return placeholder responses.",
     "Use `pear run . serve` to start the QVAC provider runtime.",
@@ -159,6 +161,7 @@ export function renderPeers({ peers, peerId, waitMs, planned = false }) {
 
     lines.push("");
     lines.push(`- ${peer.peerName ?? "anonymous"} (${peer.peerId})`);
+    lines.push(`  ledger account: ${peer.ledgerAccountId ?? "none"}`);
     lines.push(`  qvac provider: ${providerKey}`);
     lines.push(`  rating: ${rating}`);
     lines.push("  models:");
@@ -206,16 +209,58 @@ export function renderBalance({ balance, log = [] }) {
   return lines.join("\n");
 }
 
-export function renderRateResult({ accepted, provider, score, error, p2p }) {
-  return [
+export function renderRateResult({ accepted, provider, score, average, count, error, p2p }) {
+  const lines = [
     renderTitle("Rate"),
     "",
     `Status: ${accepted ? "ready" : "blocked"}`,
     `Provider: ${provider ?? "unknown"}`,
     `Score: ${score ?? "unknown"}`,
+  ];
+
+  if (average != null) lines.push(`Average: ${average}`);
+  if (count != null) lines.push(`Count: ${count}`);
+
+  lines.push("", error ?? p2p?.message ?? "Rating submitted.");
+  return lines.join("\n");
+}
+
+export function renderRatingsResult({ target, average, count, ratings = [], averages = [] }) {
+  const lines = [
+    renderTitle("Ratings"),
     "",
-    error ?? p2p?.message ?? "Rating submitted.",
-  ].join("\n");
+    "Status: ready",
+  ];
+
+  if (target) {
+    lines.push(`Target: ${target}`);
+    lines.push(`Average: ${average ?? "unrated"}`);
+    lines.push(`Count: ${count ?? 0}`);
+    lines.push("");
+    if (ratings.length === 0) {
+      lines.push("No ratings yet.");
+      return lines.join("\n");
+    }
+
+    lines.push("Ratings:");
+    for (const rating of ratings) {
+      lines.push(
+        `- ${rating.score}/5 by ${rating.reviewerName} at ${formatTime(rating.createdAt)}`,
+      );
+    }
+    return lines.join("\n");
+  }
+
+  if (averages.length === 0) {
+    lines.push("", "No ratings yet.");
+    return lines.join("\n");
+  }
+
+  lines.push("", "Average ratings:");
+  for (const row of averages) {
+    lines.push(`- ${row.target}: ${row.average} (${row.count})`);
+  }
+  return lines.join("\n");
 }
 
 export function renderAskResult({ prompt, model, content, provider, error }) {

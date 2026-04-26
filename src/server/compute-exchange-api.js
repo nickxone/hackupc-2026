@@ -11,9 +11,19 @@ export async function startComputeExchangeApi({
   onGetPeers,
   onGetBalance,
   onGetModels,
+  onRate,
+  onGetRatings,
 } = {}) {
   const server = http.createServer((req, res) => {
-    handleRequest(req, res, { peerScanMs, onChat, onGetPeers, onGetBalance, onGetModels }).catch((err) => {
+    handleRequest(req, res, {
+      peerScanMs,
+      onChat,
+      onGetPeers,
+      onGetBalance,
+      onGetModels,
+      onRate,
+      onGetRatings,
+    }).catch((err) => {
       sendJson(res, 500, {
         error: err?.message ?? String(err),
       });
@@ -51,7 +61,11 @@ export async function startComputeExchangeApi({
   };
 }
 
-async function handleRequest(req, res, { peerScanMs, onChat, onGetPeers, onGetBalance, onGetModels }) {
+async function handleRequest(
+  req,
+  res,
+  { peerScanMs, onChat, onGetPeers, onGetBalance, onGetModels, onRate, onGetRatings },
+) {
   const url = new URL(req.url, "http://localhost");
 
   // Add CORS headers for 3rd party apps (like OpenWebUI)
@@ -134,10 +148,29 @@ async function handleRequest(req, res, { peerScanMs, onChat, onGetPeers, onGetBa
 
   if (req.method === "POST" && url.pathname === "/api/rate") {
     const body = await readJson(req);
+    if (onRate) {
+      const payload = await onRate(body);
+      return sendJson(res, payload?.accepted === false ? 400 : 200, payload);
+    }
     return sendJson(res, 501, {
       accepted: false,
       provider: body.provider ?? body.provider_id ?? null,
       score: body.score ?? null,
+      p2p: placeholder("Provider ratings are not wired yet."),
+    });
+  }
+
+  if (req.method === "GET" && url.pathname === "/api/ratings") {
+    if (onGetRatings) {
+      const target = url.searchParams.get("target");
+      return sendJson(res, 200, await onGetRatings({ target }));
+    }
+    return sendJson(res, 200, {
+      target: url.searchParams.get("target"),
+      average: null,
+      count: 0,
+      ratings: [],
+      averages: [],
       p2p: placeholder("Provider ratings are not wired yet."),
     });
   }

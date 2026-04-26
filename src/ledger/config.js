@@ -18,6 +18,14 @@ export function getLedgerBootstrapKey() {
   return ledgerBootstrapKey;
 }
 
+export function getRatingsBootstrapKey() {
+  const { ratingsBootstrapKey } = loadMarketConfig();
+  if (!/^[a-f0-9]{64}$/i.test(ratingsBootstrapKey || "")) {
+    throw new Error(`Invalid ratingsBootstrapKey in ${MARKET_CONFIG_FILE}`);
+  }
+  return ratingsBootstrapKey;
+}
+
 export function getInitialCreditAmount() {
   const { initialCredits } = loadMarketConfig();
   if (!Number.isInteger(initialCredits) || initialCredits <= 0) {
@@ -40,6 +48,16 @@ export function saveLedgerBootstrapKey(key) {
   }
   const current = existsSync(MARKET_CONFIG_FILE) ? loadMarketConfig() : {};
   const next = { ...current, ledgerBootstrapKey: key };
+  mkdirSync(dirname(MARKET_CONFIG_FILE), { recursive: true });
+  writeFileSync(MARKET_CONFIG_FILE, JSON.stringify(next, null, 2) + "\n");
+}
+
+export function saveRatingsBootstrapKey(key) {
+  if (!/^[a-f0-9]{64}$/i.test(key || "")) {
+    throw new Error(`Invalid ratings bootstrap key: ${key}`);
+  }
+  const current = existsSync(MARKET_CONFIG_FILE) ? loadMarketConfig() : {};
+  const next = { ...current, ratingsBootstrapKey: key };
   mkdirSync(dirname(MARKET_CONFIG_FILE), { recursive: true });
   writeFileSync(MARKET_CONFIG_FILE, JSON.stringify(next, null, 2) + "\n");
 }

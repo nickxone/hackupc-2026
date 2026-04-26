@@ -9,6 +9,7 @@ import {
   renderPeers,
   renderProviderStarted,
   renderRateResult,
+  renderRatingsResult,
   renderUsage,
 } from "./render.js";
 
@@ -29,6 +30,7 @@ const commandDefinitions = [
       const { startComputeExchangeApi } = await import("../src/server/compute-exchange-api.js");
       const { Discovery } = await import("../src/core/discovery.js");
       const { LedgerNode } = await import("../src/ledger/node.js");
+      const { RatingsNode } = await import("../src/ratings/node.js");
       const { createChatHandler, createModelsHandler } = await import("../src/server/chat-handler.js");
       const { config } = await import("../src/config.js");
       const { default: os } = await import("bare-os");
@@ -43,6 +45,13 @@ const commandDefinitions = [
       const ledgerRegistration = await ledger.announceAccount();
       ledger.startBackgroundUpdates();
 
+      const ratings = new RatingsNode({
+        rootDir: resolve(`data/${peerName}/ratings`),
+        name: peerName,
+      });
+      await ratings.ready();
+      ratings.startBackgroundUpdates();
+
       const discovery = new Discovery({
         topicHex: config.discoveryTopic,
         peerName,
@@ -53,15 +62,35 @@ const commandDefinitions = [
       });
 
       discovery.on("ledgerRegister", async ({ event }) => {
-        await ledger.ingestSignedEvent(event);
+        try {
+          await ledger.ingestSignedEvent(event);
+        } catch (err) {
+          console.warn(`[ledger] failed to ingest registration: ${err?.message ?? err}`);
+        }
       });
 
       discovery.on("ledgerProposal", async ({ event }) => {
-        await ledger.ingestSignedEvent(event);
+        try {
+          await ledger.ingestSignedEvent(event);
+        } catch (err) {
+          console.warn(`[ledger] failed to ingest proposal: ${err?.message ?? err}`);
+        }
       });
 
       discovery.on("ledgerAcceptance", async ({ event }) => {
-        await ledger.ingestSignedEvent(event);
+        try {
+          await ledger.ingestSignedEvent(event);
+        } catch (err) {
+          console.warn(`[ledger] failed to ingest acceptance: ${err?.message ?? err}`);
+        }
+      });
+
+      discovery.on("rating", async ({ event }) => {
+        try {
+          await ratings.ingestEvent(event);
+        } catch (err) {
+          console.warn(`[ratings] failed to ingest rating: ${err?.message ?? err}`);
+        }
       });
 
       let api;
@@ -69,6 +98,7 @@ const commandDefinitions = [
         getApi: () => api,
         discovery,
         ledger,
+        ratings,
         process,
       });
 
@@ -77,8 +107,41 @@ const commandDefinitions = [
       api = await startComputeExchangeApi({
         ...options,
         onGetModels: createModelsHandler({ discovery }),
-        onGetPeers: async () => ({ peerId: discovery.myPeerId(), peers: discovery.listPeers() }),
+        onGetPeers: async () => ({
+          peerId: discovery.myPeerId(),
+          peers: await enrichPeersWithRatings(discovery.listPeers(), ratings),
+        }),
         onGetBalance: async () => ({ balance: await ledger.balance(), log: await ledger.history() }),
+        onRate: async ({ provider, provider_id: providerIdAlt, score }) => {
+          const requested = String(provider ?? providerIdAlt ?? "").trim();
+          const target = resolveRatingTarget(discovery.listPeers(), requested);
+          if (!target) return { accepted: false, error: "Missing provider ledger account id to rate." };
+
+          const event = await ratings.createRating({ target, score: Number(score) });
+          discovery.broadcastRatingEvent(event);
+
+          const values = await ratings.ratingsFor(target);
+          return {
+            accepted: true,
+            provider: target,
+            score: event.score,
+            average: await ratings.averageFor(target),
+            count: values.length,
+            rating: event,
+          };
+        },
+        onGetRatings: async ({ target }) => {
+          if (target) {
+            const values = await ratings.ratingsFor(target);
+            return {
+              target,
+              average: await ratings.averageFor(target),
+              count: values.length,
+              ratings: values,
+            };
+          }
+          return { averages: await ratings.allAverages() };
+        },
         onChat: createChatHandler({
           ledger,
           discovery,
@@ -243,7 +306,7 @@ const commandDefinitions = [
   },
   {
     name: "rate",
-    usage: "rate [--api-url url] <provider-id> <1-5>",
+    usage: "rate [--api-url url] <ledger-account-id> <1-5>",
     description: "Rate a provider through the local daemon.",
     async run(args) {
       const { apiUrl, rest } = parseApiOnlyArgs(args, "rate");
@@ -256,7 +319,7 @@ const commandDefinitions = [
           accepted: false,
           provider: providerId,
           score: Number.isFinite(score) ? score : null,
-          error: "Usage requires a provider id and an integer score from 1 to 5.",
+          error: "Usage requires a ledger account id and an integer score from 1 to 5.",
         });
       }
 
@@ -269,6 +332,18 @@ const commandDefinitions = [
       });
 
       return renderRateResult(payload);
+    },
+  },
+  {
+    name: "ratings",
+    usage: "ratings [--api-url url] [ledger-account-id]",
+    description: "Show average ratings or all rated peers.",
+    async run(args) {
+      const { apiUrl, rest } = parseApiOnlyArgs(args, "ratings");
+      const target = rest[0] ?? null;
+      const suffix = target ? `?target=${encodeURIComponent(target)}` : "";
+      const payload = await requestJson({ apiUrl, path: `/api/ratings${suffix}` });
+      return renderRatingsResult(payload);
     },
   },
 ];
@@ -677,6 +752,7 @@ function selectProvider({ peers, model, options }) {
 function matchesPeer(peer, requestedPeer) {
   return [
     peer.peerId,
+    peer.ledgerAccountId,
     peer.qvacProviderPublicKey,
     peer.peerName,
   ].some((value) => value && value.startsWith(requestedPeer));
@@ -694,7 +770,28 @@ function providerInfo(provider) {
   };
 }
 
-function setupDaemonCleanup({ getApi, discovery, ledger, process }) {
+async function enrichPeersWithRatings(peers, ratings) {
+  return Promise.all(
+    peers.map(async (peer) => ({
+      ...peer,
+      rating: peer.ledgerAccountId ? await ratings.averageFor(peer.ledgerAccountId) : null,
+    })),
+  );
+}
+
+function resolveRatingTarget(peers, requested) {
+  if (!requested) return null;
+
+  const byLedger = peers.find((peer) => peer.ledgerAccountId === requested);
+  if (byLedger?.ledgerAccountId) return byLedger.ledgerAccountId;
+
+  const byPeer = peers.find((peer) => peer.peerId === requested);
+  if (byPeer?.ledgerAccountId) return byPeer.ledgerAccountId;
+
+  return requested;
+}
+
+function setupDaemonCleanup({ getApi, discovery, ledger, ratings, process }) {
   let cleaningUp = false;
 
   const cleanup = async (signal) => {
@@ -709,6 +806,7 @@ function setupDaemonCleanup({ getApi, discovery, ledger, process }) {
     const errors = [];
     await runCleanupStep("HTTP API", () => getApi()?.stop?.(), errors);
     await runCleanupStep("discovery", () => discovery.stop(), errors);
+    await runCleanupStep("ratings", () => ratings?.close?.(), errors);
     await runCleanupStep("ledger", () => ledger?.close?.(), errors);
 
     if (errors.length > 0) {

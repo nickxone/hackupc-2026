@@ -8,8 +8,10 @@ import { writeFileSync, existsSync as _exists, readFileSync } from "bare-fs";
 import {
   MARKET_CONFIG_FILE,
   saveLedgerBootstrapKey,
+  saveRatingsBootstrapKey,
 } from "../src/ledger/config.js";
 import { openLedgerView, createApply } from "../src/ledger/protocol.js";
+import { openRatingsView, createApply as createRatingsApply } from "../src/ratings/protocol.js";
 
 const DEFAULT_INITIAL_CREDITS = 100;
 const DEFAULT_PRICE_PER_REQUEST = 1;
@@ -17,14 +19,26 @@ const DEFAULT_PRICE_PER_REQUEST = 1;
 async function main() {
   const rootArg = getRootArg();
   const rootDir = resolve(rootArg || "data/_bootstrap");
+  const ratingsRootDir = resolve(`${rootDir}-ratings`);
   mkdirSync(rootDir, { recursive: true });
+  mkdirSync(ratingsRootDir, { recursive: true });
 
-  const key = await initBootstrap(rootDir);
+  const key = await initBootstrap(rootDir, {
+    open: openLedgerView,
+    apply: createApply(),
+  });
+  const ratingsKey = await initBootstrap(ratingsRootDir, {
+    open: openRatingsView,
+    apply: createRatingsApply(),
+  });
   ensureMarketDefaults();
   saveLedgerBootstrapKey(key);
+  saveRatingsBootstrapKey(ratingsKey);
 
   console.log(`Initialized ledger bootstrap at ${rootDir}`);
   console.log(`Bootstrap key: ${key}`);
+  console.log(`Initialized ratings bootstrap at ${ratingsRootDir}`);
+  console.log(`Ratings key: ${ratingsKey}`);
   console.log(`Wrote ${MARKET_CONFIG_FILE}`);
 }
 
@@ -45,24 +59,23 @@ function ensureMarketDefaults() {
   writeFileSync(MARKET_CONFIG_FILE, JSON.stringify(current, null, 2) + "\n");
 }
 
-async function initBootstrap(rootDir) {
+async function initBootstrap(rootDir, autobaseOpts) {
   try {
-    return await readOrCreate(rootDir);
+    return await readOrCreate(rootDir, autobaseOpts);
   } catch (err) {
     if (!isMovedUnsafelyError(err)) throw err;
     const backup = `${rootDir}.corrupt-${Date.now()}`;
     renameSync(rootDir, backup);
     mkdirSync(rootDir, { recursive: true });
     console.log(`Backed up broken bootstrap store to ${backup}`);
-    return await readOrCreate(rootDir);
+    return await readOrCreate(rootDir, autobaseOpts);
   }
 }
 
-async function readOrCreate(rootDir) {
+async function readOrCreate(rootDir, autobaseOpts) {
   const store = new Corestore(rootDir);
   const base = new Autobase(store, null, {
-    open: openLedgerView,
-    apply: createApply(),
+    ...autobaseOpts,
     valueEncoding: "json",
     optimistic: true,
   });
