@@ -321,11 +321,11 @@ src/ratings/                     Signed provider ratings
 qvac/worker.entry.mjs            QVAC worker bundle entry
 ```
 
-## Hackathon Notes
+<!-- ## Hackathon Notes
 
 - Use Pear for the main demo path.
 - Current version caveat: `serve` and `daemon` cannot run simultaneously on the same machine with the same default hostname-backed peer storage. Use different `PEER_NAME`s for same-laptop demos.
 - First startup may take time while QVAC downloads model files.
 - Discovery can take a few seconds.
 - If a model gets stuck after config changes, restart both `serve` and `daemon`.
-- `pear run . ask` calls the daemon HTTP chat API, so it exercises the same ledger path as OpenCode and curl.
+- `pear run . ask` calls the daemon HTTP chat API, so it exercises the same ledger path as OpenCode and curl. -->
