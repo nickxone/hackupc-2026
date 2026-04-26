@@ -120,7 +120,6 @@ Implemented by `startComputeExchangeApi`:
 Current placeholders:
 
 - `GET /api/tags` returns an empty model list placeholder.
-- `POST /api/generate` returns a not-implemented response.
 - `POST /api/rate` returns `501`; provider ratings are not persisted.
 
 ## Discovery Protocol

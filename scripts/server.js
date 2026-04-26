@@ -136,12 +136,12 @@ console.log(`   - Ollama API: ${api.url}/api/chat`);
 console.log(`   - OpenAI API: ${api.url}/v1/chat/completions`);
 console.log(`\nWaiting for providers to join the network...`);
 
-process.on("SIGINT", async () => {
-  console.log("Shutting down...");
-  await api.stop?.();
-  await discovery.stop();
+async function shutdown(signal) {
+  console.log(`\n[server] Received ${signal}; shutting down...`);
+  await api.stop?.().catch(() => {});
+  await discovery.stop().catch(() => {});
   await ratings.close();
-  await ledger.close();
+  await ledger.close().catch(() => {});
   process.exit(0);
 });
 
