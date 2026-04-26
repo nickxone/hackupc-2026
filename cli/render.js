@@ -33,6 +33,7 @@ export function renderUsage({ commands }) {
   );
   lines.push("  pear run . peers");
   lines.push("  pear run . balance");
+  lines.push("  pear run . rate 5");
   lines.push("  pear run . rate <ledger-account-id> 5");
   lines.push("  pear run . ratings");
 
@@ -208,7 +209,16 @@ export function renderBalance({ balance, log = [] }) {
   return lines.join("\n");
 }
 
-export function renderRateResult({ accepted, provider, score, average, count, error, p2p }) {
+export function renderRateResult({
+  accepted,
+  provider,
+  score,
+  average,
+  count,
+  error,
+  p2p,
+  inferredFromLastPayment,
+}) {
   const lines = [
     renderTitle("Rate"),
     "",
@@ -219,6 +229,7 @@ export function renderRateResult({ accepted, provider, score, average, count, er
 
   if (average != null) lines.push(`Average: ${average}`);
   if (count != null) lines.push(`Count: ${count}`);
+  if (accepted && inferredFromLastPayment) lines.push("Target source: last outgoing payment");
 
   lines.push("", error ?? p2p?.message ?? "Rating submitted.");
   return lines.join("\n");

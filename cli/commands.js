@@ -306,20 +306,22 @@ const commandDefinitions = [
   },
   {
     name: "rate",
-    usage: "rate [--api-url url] <ledger-account-id> <1-5>",
+    usage: "rate [--api-url url] [ledger-account-id] <1-5>",
     description: "Rate a provider through the local daemon.",
     async run(args) {
       const { apiUrl, rest } = parseApiOnlyArgs(args, "rate");
-      const [providerId, scoreRaw] = rest;
-      const score = Number(scoreRaw);
+      const [first, second] = rest;
+      const hasExplicitProvider = rest.length >= 2;
+      const providerId = hasExplicitProvider ? first : null;
+      const score = Number(hasExplicitProvider ? second : first);
       const validScore = Number.isInteger(score) && score >= 1 && score <= 5;
 
-      if (!providerId || !validScore) {
+      if (!validScore) {
         return renderRateResult({
           accepted: false,
           provider: providerId,
           score: Number.isFinite(score) ? score : null,
-          error: "Usage requires a ledger account id and an integer score from 1 to 5.",
+          error: "Usage requires `rate <1-5>` or `rate <ledger-account-id> <1-5>`.",
         });
       }
 
@@ -327,7 +329,7 @@ const commandDefinitions = [
         apiUrl,
         method: "POST",
         path: "/api/rate",
-        body: { provider: providerId, score },
+        body: providerId ? { provider: providerId, score } : { score },
         allowError: true,
       });
 

@@ -91,9 +91,12 @@ const api = await startComputeExchangeApi({
   }),
   onRate: async ({ provider, provider_id: providerIdAlt, score }) => {
     const requested = String(provider ?? providerIdAlt ?? "").trim();
-    const target = resolveRatingTarget(discovery.listPeers(), requested);
+    const fallback = requested ? null : await ledger.lastRecipientAccount();
+    const target = requested
+      ? resolveRatingTarget(discovery.listPeers(), requested)
+      : fallback?.toAccount ?? null;
     if (!target) {
-      return { accepted: false, error: "Missing provider ledger account id to rate." };
+      return { accepted: false, error: "No rating target provided and no previous outgoing payment was found." };
     }
 
     const event = await ratings.createRating({ target, score: Number(score) });
@@ -107,6 +110,7 @@ const api = await startComputeExchangeApi({
       average: await ratings.averageFor(target),
       count: values.length,
       rating: event,
+      inferredFromLastPayment: !requested,
     };
   },
   onGetRatings: async ({ target }) => {

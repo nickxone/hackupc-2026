@@ -179,6 +179,30 @@ export class LedgerNode {
     return readHistory(this.view);
   }
 
+  async lastRecipientAccount() {
+    await this.update();
+
+    const history = await readHistory(this.view);
+    let latest = null;
+
+    for (const entry of history) {
+      const tx = entry.value;
+      if (!tx || tx.type !== "transfer") continue;
+      if (tx.fromAccount !== this.accountId) continue;
+
+      const at = tx.acceptedAt || tx.createdAt || "";
+      if (!latest || at > latest.at) {
+        latest = {
+          at,
+          toAccount: tx.toAccount,
+          txId: tx.txId,
+        };
+      }
+    }
+
+    return latest;
+  }
+
   async findAccountByName(name) {
     await this.update();
     return findAccountByName(this.view, name);

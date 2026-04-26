@@ -22,7 +22,7 @@ When you run `pear run . peers`, each peer entry now includes:
 - `ledger account`
 - average `rating`
 
-Use the `ledger account` field when rating someone.
+Use the `ledger account` field when you want to explicitly rate someone.
 
 ## One-Time Init
 
@@ -79,7 +79,15 @@ Copy the `ledger account` value.
 
 ## Rating A Provider
 
-Submit a rating through the local daemon:
+The nicest default is to rate the last person you paid:
+
+```bash
+pear run . rate 5
+```
+
+That looks at your local settled transfer history and targets the most recent account you sent credits to.
+
+If you want to explicitly pick the target, use:
 
 ```bash
 pear run . rate <ledger-account-id> 5
@@ -98,7 +106,11 @@ What happens:
 3. the event is gossiped to connected peers over discovery
 4. each peer updates its local ratings view
 
-For convenience, if you accidentally pass a visible `peerId`, the daemon will try to resolve it to the matching `ledgerAccountId`. But the intended input is still the ledger account id.
+For convenience:
+
+- `pear run . rate 5` rates the last account you paid
+- if you pass a visible `peerId`, the daemon will try to resolve it to the matching `ledgerAccountId`
+- the canonical explicit target is still the ledger account id
 
 ## Viewing Ratings
 
