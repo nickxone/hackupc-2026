@@ -10,7 +10,7 @@ import { config } from "../src/config.js";
 import os from "bare-os";
 const { hostname } = os;
 
-const peerName = (process.env.PEER_NAME || `${hostname()}-daemon`).replace(/[^a-z0-9_-]/gi, "-");
+const peerName = (process.env.PEER_NAME || hostname()).replace(/[^a-z0-9_-]/gi, "-");
 const topic = process.env.QVAC_TOPIC || config.qvacTopic;
 
 console.log(`[server] Starting P2P daemon for ${peerName}...`);

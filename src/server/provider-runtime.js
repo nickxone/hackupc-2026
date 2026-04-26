@@ -16,7 +16,7 @@ const { hostname } = os;
 
 export async function startProviderRuntime({
   topic = process.env.QVAC_TOPIC || config.qvacTopic,
-  peerName = (process.env.PEER_NAME || `${hostname()}-provider`).replace(/[^a-z0-9_-]/gi, "-"),
+  peerName = (process.env.PEER_NAME || hostname()).replace(/[^a-z0-9_-]/gi, "-"),
   modelKeys = parseModelKeys(process.env.MODELS),
   predownload = true,
   log = console.log,
