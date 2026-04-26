@@ -21,7 +21,8 @@ export function createModelsHandler({ discovery }) {
 }
 
 export function createChatHandler({ ledger, discovery, pricing, acceptanceTimeoutMs = 15_000 }) {
-  let inFlight = false;
+  // resolves when the current in-flight request finishes (null when idle)
+  let inFlightDone = null;
   const modelCache = new Map();
   // fingerprint → { content, model, usage, id, created, at }
   const responseCache = new Map();
@@ -78,9 +79,16 @@ export function createChatHandler({ ledger, discovery, pricing, acceptanceTimeou
       }
     }
 
-    if (inFlight) {
-      console.log("[chat] Busy — returning placeholder response");
-      return sendBusyResponse(res, body, isOai);
+    if (inFlightDone) {
+      console.log("[chat] Busy — waiting for in-flight request to finish");
+      await inFlightDone;
+      // After the in-flight request completes, check whether its result covers this request
+      const nowCached = responseCache.get(fingerprint);
+      if (nowCached && Date.now() - nowCached.at < RESPONSE_TTL_MS) {
+        console.log("[chat] Cache hit after wait — replaying cached response");
+        return sendCachedResponse(res, nowCached, body, isOai);
+      }
+      // Different prompt; fall through and process it now
     }
 
     // Register a pending promise so duplicate requests can await this result
@@ -90,7 +98,8 @@ export function createChatHandler({ ledger, discovery, pricing, acceptanceTimeou
       new Promise((res, rej) => { resolvePending = res; rejectPending = rej; }),
     );
 
-    inFlight = true;
+    let resolveInflight;
+    inFlightDone = new Promise(r => { resolveInflight = r; });
     try {
       const wantsStreaming = body.stream !== false;
       const modelKey = body.model || config.defaultModelKey;
@@ -290,7 +299,8 @@ export function createChatHandler({ ledger, discovery, pricing, acceptanceTimeou
       }
     } finally {
       pendingRequests.delete(fingerprint);
-      inFlight = false;
+      inFlightDone = null;
+      resolveInflight();
     }
   };
 }
@@ -364,81 +374,6 @@ function sendCachedResponse(res, entry, body, isOai) {
   }));
 }
 
-function sendBusyResponse(res, body, isOai) {
-  const wantsStreaming = body.stream !== false;
-  const modelKey = body.model || config.defaultModelKey;
-  const id = `chatcmpl-${Math.random().toString(36).slice(2)}`;
-  const created = Math.floor(Date.now() / 1000);
-  const text = "I'm currently processing another request. Please resend your message in a moment.";
-
-  if (wantsStreaming) {
-    res.writeHead(200, {
-      "Content-Type": isOai ? "text/event-stream" : "application/x-ndjson",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    });
-    if (isOai) {
-      res.write(
-        `data: ${JSON.stringify({
-          id,
-          object: "chat.completion.chunk",
-          created,
-          model: modelKey,
-          choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
-        })}\n\n`,
-      );
-      res.write(
-        `data: ${JSON.stringify({
-          id,
-          object: "chat.completion.chunk",
-          created,
-          model: modelKey,
-          choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
-        })}\n\n`,
-      );
-      res.write("data: [DONE]\n\n");
-    } else {
-      res.write(
-        `${JSON.stringify({
-          model: modelKey,
-          created_at: new Date().toISOString(),
-          message: { role: "assistant", content: text },
-          done: false,
-        })}\n`,
-      );
-      res.write(
-        `${JSON.stringify({
-          model: modelKey,
-          created_at: new Date().toISOString(),
-          message: { role: "assistant", content: "" },
-          done: true,
-        })}\n`,
-      );
-    }
-    res.end();
-    return;
-  }
-
-  if (isOai) {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({
-      id,
-      object: "chat.completion",
-      created,
-      model: modelKey,
-      choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }],
-    }));
-    return;
-  }
-
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({
-    model: modelKey,
-    created_at: new Date().toISOString(),
-    message: { role: "assistant", content: text },
-    done: true,
-  }));
-}
 
 function waitForAcceptance(discovery, txId, timeoutMs) {
   return new Promise((resolveP, rejectP) => {
