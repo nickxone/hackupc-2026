@@ -4,8 +4,21 @@ const statusLabels = {
   blocked: "blocked",
 };
 
+const ansi = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  blue: "\x1b[34m",
+  magenta: "\x1b[35m",
+  cyan: "\x1b[36m",
+  white: "\x1b[37m",
+};
+
 export function renderTitle(text) {
-  return `\n${text}\n${"=".repeat(text.length)}`;
+  return `\n${color("cyan", text)}\n${color("dim", "─".repeat(text.length))}`;
 }
 
 export function renderUsage({ commands }) {
@@ -15,19 +28,19 @@ export function renderUsage({ commands }) {
     .filter(Boolean);
 
   const lines = [
-    renderTitle("Compute Exchange CLI"),
+    renderBrandHeader(),
     "",
-    "Run the app with:",
+    color("bold", "Run LLeMur with:"),
     "  pear run . <command> [args]",
     "  npm run cli -- <command> [args]",
     "",
-    "Typical flow:",
+    color("bold", "Typical flow:"),
     "  1. Start a provider with `pear run . serve`",
     "  2. Start a local daemon with `pear run . daemon` or `pear run scripts/server.js`",
     "  3. Inspect peers with `pear run . peers`",
     "  4. Send requests or rate the last provider you paid with `pear run . rate 5`",
     "",
-    "Common commands:",
+    color("bold", "Common commands:"),
   ];
 
   for (const command of common) {
@@ -35,7 +48,7 @@ export function renderUsage({ commands }) {
     lines.push(`  ${usage} ${command.description}`);
   }
 
-  lines.push("", "Examples:");
+  lines.push("", color("bold", "Examples:"));
   lines.push("  pear run . daemon");
   lines.push("  pear run . serve");
   lines.push("  pear run . peers");
@@ -49,14 +62,14 @@ export function renderUsage({ commands }) {
   lines.push("  pear run . ratings");
   lines.push("  pear run . ratings <ledger-account-id>");
 
-  lines.push("", "Notes:");
+  lines.push("", color("bold", "Notes:"));
   lines.push("  - `rate 5` rates the last peer you successfully paid.");
   lines.push("  - `peers` shows each peer's ledger account id and average rating.");
   lines.push("  - Use `pear run scripts/server.js` if Pear app locking gets in the way of `daemon`.");
 
   const remaining = commands.filter((command) => !common.includes(command));
   if (remaining.length > 0) {
-    lines.push("", "Other commands:");
+    lines.push("", color("bold", "Other commands:"));
     for (const command of remaining) {
       const usage = command.usage.padEnd(42, " ");
       lines.push(`  ${usage} ${command.description}`);
@@ -66,55 +79,52 @@ export function renderUsage({ commands }) {
   return lines.join("\n");
 }
 
-export function renderDaemonStarted({ url, peerScanMs }) {
+export function renderDaemonStarted({ url, peerScanMs, peerName, peerId, ledgerAccountId }) {
   return [
-    renderTitle("Daemon"),
+    renderBrandHeader(),
     "",
-    "Status: ready",
+    `${statusPill("ready")} ${color("bold", "daemon online")}`,
     "",
-    `Local API: ${url}`,
-    `Peer scan window: ${peerScanMs}ms`,
+    `${color("cyan", "Peer")}       ${peerName ?? "unknown"} ${color("dim", `(${peerId ?? "unknown"})`)}`,
+    `${color("cyan", "Ledger")}     ${ledgerAccountId ?? "unknown"}`,
+    `${color("cyan", "Local API")}  ${url}`,
+    `${color("cyan", "Peer scan")}  ${peerScanMs}ms`,
     "",
-    "Compatibility routes:",
-    "- GET  /api/version",
-    "- GET  /api/tags",
-    "- POST /api/chat",
-    "",
-    "Compute Exchange routes:",
-    "- GET  /api/peers",
-    "- GET  /api/balance",
-    "- POST /api/rate",
-    "- GET  /api/ratings",
-    "",
-    "Chat requests delegate to discovered QVAC providers when available.",
-    "Use `pear run . serve` to start the QVAC provider runtime.",
-    "Press Ctrl+C to stop.",
+    `${color("green", "Ready for")} chat, peers, balance, and ratings`,
+    `${color("yellow", "Tip")} start a provider with \`pear run . serve\``,
+    color("dim", "Press Ctrl+C to stop."),
   ].join("\n");
 }
 
 export function renderProviderStarted({
   peerName,
   peerId,
+  ledgerAccountId,
   publicKey,
   topic,
   servedModels,
 }) {
   const lines = [
-    renderTitle("Serve"),
+    renderBrandHeader(),
     "",
-    "Status: ready",
-    `Peer: ${peerName} (${peerId})`,
-    `QVAC topic: ${topic}`,
-    `Provider public key: ${publicKey}`,
+    `${statusPill("ready")} ${color("bold", "provider online")}`,
+    `${color("cyan", "Peer")}        ${color("bold", peerName)} ${color("dim", `(${peerId})`)}`,
+    `${color("cyan", "Ledger")}      ${ledgerAccountId ?? "unknown"}`,
+    `${color("cyan", "QVAC topic")}  ${topic}`,
+    `${color("cyan", "Public key")}  ${publicKey}`,
     "",
-    "Serving models:",
+    `${color("green", "Serving")} ${servedModels.length} model${servedModels.length === 1 ? "" : "s"}`,
+    "",
+    color("bold", "Models:"),
   ];
 
   for (const model of servedModels) {
-    lines.push(`- ${model.key} tier=${model.tier} id=${model.id}`);
+    lines.push(`  ${color("magenta", "◆")} ${color("bold", model.key)} ${color("dim", `tier ${model.tier}`)}`);
+    lines.push(`    ${color("cyan", "price")} ${formatCreditEstimate(model)}`);
+    lines.push(`    ${color("cyan", "id")}    ${model.id}`);
   }
 
-  lines.push("", "Provider ready. Press Ctrl+C to stop.");
+  lines.push("", color("dim", "Provider ready. Press Ctrl+C to stop."));
   return lines.join("\n");
 }
 
@@ -158,9 +168,9 @@ export function renderPeers({ peers, peerId, waitMs, planned = false }) {
   const lines = [
     renderTitle("Peers"),
     "",
-    `Status: ${planned ? "pending" : "ready"}`,
-    `Discovery peer: ${peerId}`,
-    `Scan window: ${waitMs}ms`,
+    `${statusPill(planned ? "pending" : "ready")} ${planned ? "waiting" : "live"}`,
+    `${color("cyan", "Discovery peer")}  ${peerId}`,
+    `${color("cyan", "Scan window")}     ${waitMs}ms`,
     "",
   ];
 
@@ -183,7 +193,7 @@ export function renderPeers({ peers, peerId, waitMs, planned = false }) {
     return lines.join("\n");
   }
 
-  lines.push(`Found ${sortedPeers.length} peer${sortedPeers.length === 1 ? "" : "s"}:`);
+  lines.push(`${color("bold", `Found ${sortedPeers.length} peer${sortedPeers.length === 1 ? "" : "s"}:`)}`);
 
   for (const peer of sortedPeers) {
     const providerKey = peer.qvacProviderPublicKey
@@ -192,23 +202,24 @@ export function renderPeers({ peers, peerId, waitMs, planned = false }) {
     const rating = formatPeerRating(peer);
 
     lines.push("");
-    lines.push(`- ${peer.peerName ?? "anonymous"} (${peer.peerId})`);
-    lines.push(`  ledger account: ${peer.ledgerAccountId ?? "none"}`);
-    lines.push(`  qvac provider: ${providerKey}`);
-    lines.push(`  average rating: ${rating}`);
-    lines.push("  models:");
+    lines.push(`${color("magenta", "◆")} ${color("bold", peer.peerName ?? "anonymous")} ${color("dim", `(${peer.peerId})`)}`);
+    lines.push(`  ${color("cyan", "ledger")}   ${peer.ledgerAccountId ?? "none"}`);
+    lines.push(`  ${color("cyan", "provider")} ${providerKey}`);
+    lines.push(`  ${color("cyan", "rating")}   ${rating}`);
+    lines.push(`  ${color("cyan", "models")}   `);
 
     if (peer.models?.length) {
       for (const model of peer.models) {
-        lines.push(
-          `    - ${model.id} tier=${model.tier} est=${formatCreditEstimate(model)}`,
-        );
+        lines.push(`    ${color("magenta", "•")} ${color("bold", model.key ?? model.id ?? "unknown")}`);
+        lines.push(`      ${color("cyan", "tier")}  ${model.tier ?? "unknown"}`);
+        lines.push(`      ${color("cyan", "price")} ${formatCreditEstimate(model)}`);
+        lines.push(`      ${color("cyan", "id")}    ${model.id ?? "unknown"}`);
       }
     } else {
       lines.push("    - none");
     }
 
-    lines.push(`  last seen: ${formatTime(peer.lastSeenAt)}`);
+    lines.push(`  ${color("cyan", "seen")}     ${formatTime(peer.lastSeenAt)}`);
   }
 
   return lines.join("\n");
@@ -218,15 +229,15 @@ function formatPeerRating(peer) {
   if (peer.rating == null) return "unrated";
   const count = Number.isInteger(peer.ratingCount) ? peer.ratingCount : 0;
   const countLabel = count === 1 ? "rating" : "ratings";
-  return `${Number(peer.rating).toFixed(2)}/5 (${count} ${countLabel})`;
+  return `${renderStars(peer.rating)} ${Number(peer.rating).toFixed(2)}/5 ${color("dim", `(${count} ${countLabel})`)}`;
 }
 
 export function renderBalance({ balance, log = [] }) {
   const lines = [
     renderTitle("Balance"),
     "",
-    "Status: ready",
-    `Credits: ${balance ?? "unknown"}`,
+    `${statusPill("ready")} wallet`,
+    `${color("cyan", "Credits")}  ${balance ?? "unknown"}`,
     "",
   ];
 
@@ -235,7 +246,7 @@ export function renderBalance({ balance, log = [] }) {
     return lines.join("\n");
   }
 
-  lines.push("Recent events:");
+  lines.push(color("bold", "Recent events:"));
   for (const event of log.slice(-10).reverse()) {
     const type = event.type ?? "event";
     const credits = event.credits == null ? "unknown credits" : `${event.credits} credits`;
@@ -261,14 +272,14 @@ export function renderRateResult({
   const lines = [
     renderTitle("Rate"),
     "",
-    `Status: ${accepted ? "ready" : "blocked"}`,
-    `Provider: ${provider ?? "unknown"}`,
-    `Score: ${score ?? "unknown"}`,
+    `${statusPill(accepted ? "ready" : "blocked")} rating`,
+    `${color("cyan", "Provider")}  ${provider ?? "unknown"}`,
+    `${color("cyan", "Score")}     ${score != null ? `${renderStars(score)} ${score}/5` : "unknown"}`,
   ];
 
-  if (average != null) lines.push(`Average: ${average}`);
-  if (count != null) lines.push(`Count: ${count}`);
-  if (accepted && inferredFromLastPayment) lines.push("Target source: last outgoing payment");
+  if (average != null) lines.push(`${color("cyan", "Average")}   ${renderStars(average)} ${average}/5`);
+  if (count != null) lines.push(`${color("cyan", "Count")}     ${count}`);
+  if (accepted && inferredFromLastPayment) lines.push(`${color("yellow", "Target")}    last outgoing payment`);
 
   lines.push("", error ?? p2p?.message ?? "Rating submitted.");
   return lines.join("\n");
@@ -278,23 +289,23 @@ export function renderRatingsResult({ target, average, count, ratings = [], aver
   const lines = [
     renderTitle("Ratings"),
     "",
-    "Status: ready",
+    `${statusPill("ready")} ratings`,
   ];
 
   if (target) {
-    lines.push(`Target: ${target}`);
-    lines.push(`Average: ${average ?? "unrated"}`);
-    lines.push(`Count: ${count ?? 0}`);
+    lines.push(`${color("cyan", "Target")}   ${target}`);
+    lines.push(`${color("cyan", "Average")}  ${average == null ? "unrated" : `${renderStars(average)} ${average}/5`}`);
+    lines.push(`${color("cyan", "Count")}    ${count ?? 0}`);
     lines.push("");
     if (ratings.length === 0) {
       lines.push("No ratings yet.");
       return lines.join("\n");
     }
 
-    lines.push("Ratings:");
+    lines.push(color("bold", "Ratings:"));
     for (const rating of ratings) {
       lines.push(
-        `- ${rating.score}/5 by ${rating.reviewerName} at ${formatTime(rating.createdAt)}`,
+        `- ${renderStars(rating.score)} ${rating.score}/5 by ${rating.reviewerName} at ${formatTime(rating.createdAt)}`,
       );
     }
     return lines.join("\n");
@@ -305,9 +316,9 @@ export function renderRatingsResult({ target, average, count, ratings = [], aver
     return lines.join("\n");
   }
 
-  lines.push("", "Average ratings:");
+  lines.push("", color("bold", "Average ratings:"));
   for (const row of averages) {
-    lines.push(`- ${row.target}: ${row.average} (${row.count})`);
+    lines.push(`- ${row.target}: ${renderStars(row.average)} ${row.average}/5 ${color("dim", `(${row.count})`)}`);
   }
   return lines.join("\n");
 }
@@ -339,12 +350,12 @@ export function renderAskDetails({ prompt, provider }) {
 
   if (provider) {
     lines.push("", "Provider:");
-    lines.push(`  machine: ${provider.peerName ?? "unknown"}`);
-    lines.push(`  peer id: ${provider.peerId ?? "unknown"}`);
-    lines.push(`  qvac key: ${provider.qvacProviderPublicKey ?? "unknown"}`);
-    lines.push(`  qvac topic: ${provider.qvacTopic ?? "unknown"}`);
-    if (provider.rating != null) lines.push(`  rating: ${provider.rating}`);
-    if (provider.lastSeenAt) lines.push(`  last seen: ${formatTime(provider.lastSeenAt)}`);
+    lines.push(`  ${color("cyan", "machine")}   ${provider.peerName ?? "unknown"}`);
+    lines.push(`  ${color("cyan", "peer id")}   ${provider.peerId ?? "unknown"}`);
+    lines.push(`  ${color("cyan", "qvac key")}  ${provider.qvacProviderPublicKey ?? "unknown"}`);
+    lines.push(`  ${color("cyan", "qvac topic")} ${provider.qvacTopic ?? "unknown"}`);
+    if (provider.rating != null) lines.push(`  ${color("cyan", "rating")}    ${renderStars(provider.rating)} ${provider.rating}/5`);
+    if (provider.lastSeenAt) lines.push(`  ${color("cyan", "last seen")} ${formatTime(provider.lastSeenAt)}`);
 
     const models = provider.models ?? [];
     if (models.length > 0) {
@@ -361,7 +372,8 @@ export function renderAskDetails({ prompt, provider }) {
 
 function formatProviderModel(model) {
   const name = model.key ?? model.id ?? "unknown";
-  return model.tier == null ? name : `${name}(tier ${model.tier})`;
+  const tier = model.tier == null ? "tier ?" : `tier ${model.tier}`;
+  return `${name} (${tier}, ${formatCreditEstimate(model)})`;
 }
 
 export function renderAskPlan({ prompt, options }) {
@@ -398,12 +410,81 @@ export function renderAskPlan({ prompt, options }) {
 
 export function renderError(message) {
   return [
-    renderTitle("Command Error"),
+    renderTitle(color("red", "Command Error")),
     "",
     message,
     "",
     "Run `pear run . help` for available commands.",
   ].join("\n");
+}
+
+function renderBrandHeader() {
+  const lemur = [
+    "                 ,,",
+    "                ==",
+    "               ==",
+    "              ==",
+    "             ==",
+    "             ==",
+    "    ,  ,     ==",
+    "    |\\/|   ,-..-,",
+    "  ./(_  \\_/      \\",
+    "      \\           |",
+    "      | \\_,' /^| /",
+    "      ( //  /  \\ \\",
+    "      || \\ <    \\ )",
+    "     _\\|  \\ )   _\\\\",
+    "      ~'  _\\|    '~",
+    "           '~",
+  ].map((line) => color("green", line));
+
+  const title = [
+    "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+    "~   _         _                   __  __                      ~",
+    "~  FJ        FJ         ____     F  \\/  ]    _    _    _ ___  ~",
+    "~ J |       J |        F __ J   J |\\__/| L  J |  | L  J '__ \",~",
+    "~ | |       | |       | _____J  | |`--'| |  | |  | |  | |__|-J~",
+    "~ F L_____  F L_____  F L___--. F L    J J  F L__J J  F L  `-'~",
+    "~J________LJ________LJ\\______/FJ__L    J__LJ\\____,__LJ__L     ~",
+    "~|________||________| J______F |__L    J__| J____,__F|__L     ~",
+    "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~",
+  ].map((line) => color("green", line));
+
+  const gap = "   ";
+  const rows = Math.max(lemur.length, title.length);
+  const leftWidth = Math.max(...lemur.map((line) => stripAnsi(line).length));
+  const lines = [];
+
+  for (let i = 0; i < rows; i++) {
+    const left = lemur[i] ?? "";
+    const right = title[i] ?? "";
+    const padding = " ".repeat(Math.max(0, leftWidth - stripAnsi(left).length));
+    lines.push(`${left}${padding}${gap}${right}`);
+  }
+
+  lines.push(color("dim", "peer-to-peer compute market"));
+  return lines.join("\n");
+}
+
+function statusPill(status) {
+  if (status === "ready") return color("green", "[ready]");
+  if (status === "blocked") return color("red", "[blocked]");
+  return color("yellow", "[pending]");
+}
+
+function renderStars(value) {
+  const rounded = Math.max(0, Math.min(5, Math.round(Number(value) || 0)));
+  const filled = "★".repeat(rounded);
+  const empty = "☆".repeat(5 - rounded);
+  return `${color("yellow", filled)}${color("dim", empty)}`;
+}
+
+function color(name, text) {
+  return `${ansi[name] || ""}${text}${ansi.reset}`;
+}
+
+function stripAnsi(text) {
+  return String(text).replace(/\x1b\[[0-9;]*m/g, "");
 }
 
 function formatTime(ts) {
@@ -412,10 +493,10 @@ function formatTime(ts) {
 }
 
 function formatCreditEstimate(model) {
+  if (model.priceCredits != null) return `${model.priceCredits} credits`;
   if (model.estimatedCredits != null) return `${model.estimatedCredits} credits`;
   if (model.minCredits != null && model.maxCredits != null) {
     return `${model.minCredits}-${model.maxCredits} credits`;
   }
-  if (model.tier != null) return `tier ${model.tier} pricing`;
-  return "unknown";
+  return "unknown price";
 }

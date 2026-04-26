@@ -161,11 +161,16 @@ const commandDefinitions = [
         onChat: createChatHandler({
           ledger,
           discovery,
-          pricePerRequest: config.ledger.pricePerRequest ?? 1,
+          pricing: config.ledger,
         }),
       });
       return {
-        output: renderDaemonStarted(api),
+        output: renderDaemonStarted({
+          ...api,
+          peerName,
+          peerId: discovery.myPeerId(),
+          ledgerAccountId: ledger.accountId,
+        }),
         keepAlive: true,
       };
     },
@@ -180,6 +185,18 @@ const commandDefinitions = [
       const { config } = await import("../src/config.js");
       const { default: os } = await import("bare-os");
       const { startProviderRuntime } = await import("../src/server/provider-runtime.js");
+      const startupLogBuffer = [];
+      let liveLogs = false;
+      const bufferedLog = (...parts) => {
+        const line = parts.map((part) => String(part)).join(" ");
+        if (liveLogs) console.log(line);
+        else startupLogBuffer.push(line);
+      };
+      const bufferedError = (...parts) => {
+        const line = parts.map((part) => String(part)).join(" ");
+        if (liveLogs) console.error(line);
+        else startupLogBuffer.push(line);
+      };
       const options = parseServeArgs(args, {
         defaultTopic: config.qvacTopic,
         defaultPeerName: process.env.PEER_NAME || os.hostname(),
@@ -191,7 +208,10 @@ const commandDefinitions = [
         peerName: options.peerName,
         modelKeys: options.modelKeys,
         predownload: options.predownload,
+        log: bufferedLog,
+        error: bufferedError,
       });
+      liveLogs = true;
 
       setupProviderCleanup({ provider, process });
 
@@ -877,19 +897,60 @@ function setupProviderCleanup({ provider, process }) {
 }
 
 function formatDiscoveredPeerSummary(peer, ratingSummary = { average: null, count: 0 }) {
-  const models = (peer.models || []).map((model) => model.key ?? model.id).join(", ") || "none";
+  const models = peer.models || [];
   const rating = ratingSummary.average == null
-    ? "unrated"
-    : `${Number(ratingSummary.average).toFixed(2)}/5 (${ratingSummary.count} ${ratingSummary.count === 1 ? "rating" : "ratings"})`;
-  return [
-    "[discovery] peer summary",
-    `  name: ${peer.peerName ?? "anonymous"}`,
-    `  peer id: ${peer.peerId?.slice(0, 12) ?? "unknown"}`,
-    `  ledger: ${peer.ledgerAccountId?.slice(0, 12) ?? "none"}`,
-    `  rating: ${rating}`,
-    `  provider: ${peer.qvacProviderPublicKey ? "yes" : "no"}`,
-    `  models: ${models}`,
-  ].join("\n");
+    ? `${c("dim", "unrated")}`
+    : `${renderSummaryStars(ratingSummary.average)} ${Number(ratingSummary.average).toFixed(2)}/5 ${c("dim", `(${ratingSummary.count} ${ratingSummary.count === 1 ? "rating" : "ratings"})`)}`;
+  const lines = [
+    `${c("magenta", "◆")} ${c("bold", peer.peerName ?? "anonymous")} ${c("dim", `(${peer.peerId?.slice(0, 12) ?? "unknown"})`)}`,
+    `  ${label("ledger")}   ${peer.ledgerAccountId ?? "none"}`,
+    `  ${label("rating")}   ${rating}`,
+    `  ${label("provider")} ${peer.qvacProviderPublicKey ? c("green", "yes") : c("dim", "no")}`,
+    `  ${label("models")}   `,
+  ];
+
+  if (models.length === 0) {
+    lines.push(`    ${c("dim", "none")}`);
+  } else {
+    for (const model of models) {
+      lines.push(`    ${c("magenta", "•")} ${c("bold", model.key ?? model.id ?? "unknown")}`);
+      lines.push(`      ${label("tier")}  ${model.tier ?? "unknown"}`);
+      lines.push(`      ${label("price")} ${formatSummaryCreditEstimate(model)}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+function renderSummaryStars(value) {
+  const rounded = Math.max(0, Math.min(5, Math.round(Number(value) || 0)));
+  return `${c("yellow", "★".repeat(rounded))}${c("dim", "☆".repeat(5 - rounded))}`;
+}
+
+function formatSummaryCreditEstimate(model) {
+  if (model.priceCredits != null) return `${model.priceCredits} credits`;
+  if (model.estimatedCredits != null) return `${model.estimatedCredits} credits`;
+  if (model.minCredits != null && model.maxCredits != null) {
+    return `${model.minCredits}-${model.maxCredits} credits`;
+  }
+  return "unknown price";
+}
+
+function label(text) {
+  return c("cyan", text);
+}
+
+function c(name, text) {
+  const ansi = {
+    reset: "\x1b[0m",
+    bold: "\x1b[1m",
+    dim: "\x1b[2m",
+    green: "\x1b[32m",
+    yellow: "\x1b[33m",
+    cyan: "\x1b[36m",
+    magenta: "\x1b[35m",
+  };
+  return `${ansi[name] || ""}${text}${ansi.reset}`;
 }
 
 async function runCleanupStep(label, step, errors) {

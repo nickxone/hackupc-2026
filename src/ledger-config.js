@@ -1,4 +1,11 @@
+import { getCreditPricing, getInitialCreditAmount, getPriceForTier } from "./ledger/config.js";
+
+const pricing = getCreditPricing();
+
 export const ledgerConfig = {
-  initialBalance: 100,
+  initialBalance: getInitialCreditAmount(),
   pricePerTokenPerTier: 0.1,
+  pricePerRequest: pricing.pricePerRequest,
+  tierPrices: pricing.tierPrices,
+  getPriceForTier,
 };

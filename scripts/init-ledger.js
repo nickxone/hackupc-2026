@@ -15,6 +15,11 @@ import { openRatingsView, createApply as createRatingsApply } from "../src/ratin
 
 const DEFAULT_INITIAL_CREDITS = 100;
 const DEFAULT_PRICE_PER_REQUEST = 1;
+const DEFAULT_TIER_PRICES = {
+  "1": 1,
+  "2": 2,
+  "3": 3,
+};
 
 async function main() {
   const rootArg = getRootArg();
@@ -55,6 +60,16 @@ function ensureMarketDefaults() {
   }
   if (!Number.isFinite(current.pricePerRequest) || current.pricePerRequest < 0) {
     current.pricePerRequest = DEFAULT_PRICE_PER_REQUEST;
+  }
+  if (!current.tierPrices || typeof current.tierPrices !== "object") {
+    current.tierPrices = { ...DEFAULT_TIER_PRICES };
+  } else {
+    for (const [tier, fallback] of Object.entries(DEFAULT_TIER_PRICES)) {
+      const existing = current.tierPrices[tier];
+      if (!Number.isFinite(existing) || existing <= 0) {
+        current.tierPrices[tier] = fallback;
+      }
+    }
   }
   writeFileSync(MARKET_CONFIG_FILE, JSON.stringify(current, null, 2) + "\n");
 }

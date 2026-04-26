@@ -23,7 +23,7 @@ await ledger.ready();
 const ledgerRegistration = await ledger.announceAccount();
 ledger.startBackgroundUpdates();
 console.log(
-  `[ledger] ${peerName} accountId=${ledger.accountId.slice(0, 12)} balance=${await ledger.balance()}`,
+  `[ledger] ${peerName} accountId=${ledger.accountId} balance=${await ledger.balance()}`,
 );
 
 const ratings = new RatingsNode({
@@ -75,7 +75,7 @@ discovery.on("rating", async ({ event }) => {
 });
 
 await discovery.start();
-console.log(`[discovery] Joined as "${peerName}", peerId=${discovery.myPeerId().slice(0, 12)}`);
+console.log(`[discovery] Joined as "${peerName}", peerId=${discovery.myPeerId()} ledger=${ledger.accountId}`);
 
 const api = await startComputeExchangeApi({
   host: "127.0.0.1",
@@ -131,7 +131,7 @@ const api = await startComputeExchangeApi({
   onChat: createChatHandler({
     ledger,
     discovery,
-    pricePerRequest: config.ledger.pricePerRequest ?? 1,
+    pricing: config.ledger,
   }),
 });
 

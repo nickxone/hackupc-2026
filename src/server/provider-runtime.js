@@ -63,17 +63,16 @@ export async function startProviderRuntime({
   const discovery = new Discovery({
     topicHex: config.discoveryTopic,
     peerName,
-    models: servedModels.map((m) => ({ id: m.id, key: m.key, tier: m.tier })),
+    models: servedModels.map((m) => ({
+      id: m.id,
+      key: m.key,
+      tier: m.tier,
+      priceCredits: m.priceCredits,
+    })),
     qvacTopic: topic,
     qvacProviderPublicKey: publicKey,
     ledgerAccountId: ledger.accountId,
     ledgerRegistration,
-  });
-
-  discovery.on("announce", (peer) => {
-    log(
-      `[discovery] saw peer ${peer.peerId.slice(0, 12)} (${peer.peerName}) models=${peer.models.map((m) => m.key ?? m.id).join(",") || "<none>"} ledger=${peer.ledgerAccountId?.slice(0, 12) ?? "—"}`,
-    );
   });
 
   discovery.on("ledgerRegister", async ({ event }) => {
@@ -121,10 +120,6 @@ export async function startProviderRuntime({
     }
   });
 
-  discovery.on("peerLeft", (peerId) => {
-    log(`[discovery] peer left ${peerId.slice(0, 12)}`);
-  });
-
   await discovery.start();
   log(
     `Discovery joined as "${peerName}", peerId=${discovery.myPeerId().slice(0, 12)}`,
@@ -153,6 +148,7 @@ export async function startProviderRuntime({
     servedModels,
     publicKey,
     peerId: discovery.myPeerId(),
+    ledgerAccountId: ledger.accountId,
     discovery,
     ledger,
     ratings,
@@ -169,19 +165,10 @@ export function parseModelKeys(value) {
 }
 
 async function preDownloadModel({ model, log }) {
-  process.stdout.write(`  ${model.key}: `);
-  let lastPct = -1;
   await preDownload({
     modelSrc: model.src,
-    onProgress: (progress) => {
-      const pct = Math.floor(progress.percentage);
-      if (pct !== lastPct && pct % 10 === 0) {
-        process.stdout.write(`${pct}% `);
-        lastPct = pct;
-      }
-    },
+    onProgress: () => {},
   });
-  process.stdout.write("done\n");
 }
 
 function summarizeMemo(memo) {

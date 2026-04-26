@@ -20,7 +20,7 @@ export function createModelsHandler({ discovery }) {
   };
 }
 
-export function createChatHandler({ ledger, discovery, pricePerRequest, acceptanceTimeoutMs = 15_000 }) {
+export function createChatHandler({ ledger, discovery, pricing, acceptanceTimeoutMs = 15_000 }) {
   let inFlight = false;
   const modelCache = new Map();
 
@@ -84,7 +84,9 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
         messages: messages.length,
         reqId,
       });
-      const amount = Math.max(1, Math.ceil(pricePerRequest * model.tier));
+      const amount = typeof pricing?.getPriceForTier === "function"
+        ? pricing.getPriceForTier(model.tier)
+        : Math.max(1, Math.ceil((pricing?.pricePerRequest ?? 1) * model.tier));
 
       const proposal = await ledger.signProposal({
         toAccount: provider.ledgerAccountId,
