@@ -53,15 +53,15 @@ const commandDefinitions = [
       });
 
       discovery.on("ledgerRegister", async ({ event }) => {
-        await ledger.ingestSignedEvent(event);
+        await ledger.ingestSignedEvent(event).catch(() => {});
       });
 
       discovery.on("ledgerProposal", async ({ event }) => {
-        await ledger.ingestSignedEvent(event);
+        await ledger.ingestSignedEvent(event).catch(() => {});
       });
 
       discovery.on("ledgerAcceptance", async ({ event }) => {
-        await ledger.ingestSignedEvent(event);
+        await ledger.ingestSignedEvent(event).catch(() => {});
       });
 
       let api;

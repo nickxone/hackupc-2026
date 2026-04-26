@@ -85,10 +85,17 @@ console.log(`   - Ollama API: ${api.url}/api/chat`);
 console.log(`   - OpenAI API: ${api.url}/v1/chat/completions`);
 console.log(`\nWaiting for providers to join the network...`);
 
-process.on("SIGINT", async () => {
-  console.log("Shutting down...");
-  await api.stop?.();
-  await discovery.stop();
-  await ledger.close();
+async function shutdown(signal) {
+  console.log(`\n[server] Received ${signal}; shutting down...`);
+  await api.stop?.().catch(() => {});
+  await discovery.stop().catch(() => {});
+  await ledger.close().catch(() => {});
   process.exit(0);
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] Unhandled rejection:", reason?.message ?? reason);
 });

@@ -82,8 +82,9 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
         `[ledger] proposed ${proposal.txId.slice(0, 8)} -> ${provider.ledgerAccountId.slice(0, 12)} amount=${amount}`,
       );
 
+      // acceptance is already ingested by the ledgerAcceptance handler in server.js;
+      // calling ingestSignedEvent here again would race against that concurrent append
       const acceptance = await accepted;
-      await ledger.ingestSignedEvent(acceptance);
       console.log(
         `[ledger] settled ${proposal.txId.slice(0, 8)} balance=${await ledger.balance()}`,
       );

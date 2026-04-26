@@ -30,8 +30,8 @@ export class LedgerNode {
     this.account = null;
     this.store = null;
     this.base = null;
-    this._announcementInterval = null;
     this._updateInterval = null;
+    this._updateInFlight = false;
   }
 
   async ready() {
@@ -81,9 +81,13 @@ export class LedgerNode {
   }
 
   async update() {
+    if (this._updateInFlight) return;
+    this._updateInFlight = true;
     try {
       await this.base.update();
     } catch {
+    } finally {
+      this._updateInFlight = false;
     }
   }
 
