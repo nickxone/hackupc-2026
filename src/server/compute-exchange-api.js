@@ -137,7 +137,6 @@ async function handleRequest(
 
   if (req.method === "POST" && url.pathname === "/api/chat") {
     const body = await readJson(req);
-    console.log(`[http] /api/chat body=${JSON.stringify(body)}`);
     if (onChat) {
       return onChat(res, body);
     }
@@ -189,7 +188,6 @@ async function handleRequest(
   // Also support OpenAI compatibility for wider tool support
   if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
     const body = await readJson(req);
-    console.log(`[http] /v1/chat/completions body=${JSON.stringify(body)}`);
     if (onChat) {
       return onChat(res, body, true); // true = use OpenAI format
     }
