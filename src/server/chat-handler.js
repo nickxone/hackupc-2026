@@ -109,6 +109,7 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
       const modelId = await getOrLoadModel(provider, model);
 
       const history = truncateHistory(messages, model.contextTokens ?? 1024);
+      const promptTokens = estimateTokens(history);
       const response = runCompletion({ modelId, history, stream: true });
       const providerMeta = providerInfo(provider);
       const id = `chatcmpl-${Math.random().toString(36).slice(2)}`;
@@ -121,7 +122,9 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
           Connection: "keep-alive",
         });
 
+        let completionTokens = 0;
         for await (const token of response.tokenStream) {
+          completionTokens++;
           if (isOai) {
             res.write(
               `data: ${JSON.stringify({
@@ -130,6 +133,7 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
                 created,
                 model: model.key,
                 choices: [{ index: 0, delta: { content: token }, finish_reason: null }],
+                usage: null,
               })}\n\n`,
             );
           } else {
@@ -144,6 +148,8 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
           }
         }
 
+        const usage = { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens };
+
         if (isOai) {
           res.write(
             `data: ${JSON.stringify({
@@ -152,6 +158,18 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
               created,
               model: model.key,
               choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+              usage: null,
+            })}\n\n`,
+          );
+          // Final usage-only chunk (opencode reads usage from here when stream_options.include_usage=true)
+          res.write(
+            `data: ${JSON.stringify({
+              id,
+              object: "chat.completion.chunk",
+              created,
+              model: model.key,
+              choices: [],
+              usage,
             })}\n\n`,
           );
           res.write("data: [DONE]\n\n");
@@ -164,6 +182,7 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
               done: true,
               provider: providerMeta,
               tx: { txId: proposal.txId, amount },
+              usage,
             })}\n`,
           );
         }
@@ -172,9 +191,13 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
       }
 
       let content = "";
+      let completionTokens = 0;
       for await (const token of response.tokenStream) {
         content += token;
+        completionTokens++;
       }
+
+      const usage = { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens };
 
       if (isOai) {
         res.writeHead(200, { "Content-Type": "application/json" });
@@ -188,6 +211,7 @@ export function createChatHandler({ ledger, discovery, pricePerRequest, acceptan
             message: { role: "assistant", content },
             finish_reason: "stop",
           }],
+          usage,
           provider: providerMeta,
           tx: { txId: proposal.txId, amount },
         }));
@@ -340,4 +364,8 @@ function providerInfo(provider) {
 
 function fingerprintMessages(messages) {
   return JSON.stringify(messages.map((m) => ({ role: m.role, content: m.content })));
+}
+
+function estimateTokens(messages) {
+  return messages.reduce((sum, m) => sum + Math.ceil((m.content || "").length / 4), 0);
 }
