@@ -23,6 +23,7 @@ export async function loadLocalModel({ modelSrc, onProgress }) {
 
 export async function loadDelegatedModel({
   modelSrc,
+  modelConfig,
   topic,
   providerPublicKey,
   timeoutMs = 30_000,
@@ -32,6 +33,7 @@ export async function loadDelegatedModel({
   return loadModel({
     modelSrc,
     modelType: "llm",
+    ...(modelConfig ? { modelConfig } : {}),
     delegate: {
       topic,
       providerPublicKey,
@@ -42,8 +44,13 @@ export async function loadDelegatedModel({
   });
 }
 
-export function runCompletion({ modelId, history, stream = true }) {
-  return completion({ modelId, history, stream });
+export function runCompletion({ modelId, history, stream = true, generationParams }) {
+  return completion({
+    modelId,
+    history,
+    stream,
+    ...(generationParams ? { generationParams } : {}),
+  });
 }
 
 export async function unload({ modelId }) {

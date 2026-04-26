@@ -36,6 +36,7 @@ export function createChatHandler({ ledger, discovery, pricing, acceptanceTimeou
 
     const modelId = await loadDelegatedModel({
       modelSrc: model.src,
+      modelConfig: model.modelConfig,
       topic: provider.qvacTopic,
       providerPublicKey: provider.qvacProviderPublicKey,
       timeoutMs: config.requestTimeoutMs,
@@ -109,9 +110,10 @@ export function createChatHandler({ ledger, discovery, pricing, acceptanceTimeou
 
       const modelId = await getOrLoadModel(provider, model);
 
-      const history = truncateHistory(messages, model.contextTokens ?? 1024);
+      const generationParams = resolveGenerationParams({ body, model });
+      const history = truncateHistory(messages, promptTokenBudget({ model, generationParams }));
       const promptTokens = estimateTokens(history);
-      const response = runCompletion({ modelId, history, stream: true });
+      const response = runCompletion({ modelId, history, stream: true, generationParams });
       const providerMeta = providerInfo(provider);
       const id = `chatcmpl-${Math.random().toString(36).slice(2)}`;
       const created = Math.floor(Date.now() / 1000);
@@ -273,6 +275,24 @@ function truncateHistory(messages, tokenBudget) {
     total -= Math.ceil((removed.content || "").length / 4);
   }
   return filtered;
+}
+
+function resolveGenerationParams({ body, model }) {
+  const requested = body?.options?.num_predict ?? body?.max_tokens ?? body?.generationParams?.predict;
+  const predict = Number.isInteger(requested) && requested > 0
+    ? requested
+    : model.maxOutputTokens ?? 512;
+  return {
+    ...(body?.generationParams && typeof body.generationParams === "object" ? body.generationParams : {}),
+    predict,
+  };
+}
+
+function promptTokenBudget({ model, generationParams }) {
+  const contextWindow = model.contextTokens ?? model.modelConfig?.ctx_size ?? 1024;
+  const outputReserve = generationParams?.predict ?? model.maxOutputTokens ?? 512;
+  const templateReserve = 128;
+  return Math.max(128, contextWindow - outputReserve - templateReserve);
 }
 
 function providerInfo(provider) {

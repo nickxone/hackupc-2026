@@ -13,7 +13,11 @@ const models = {
     label: "Llama 3.2 1B (Q4)",
     tier: 1,
     priceCredits: ledgerConfig.getPriceForTier(1),
-    contextTokens: 900,
+    contextTokens: 1_400,
+    maxOutputTokens: 512,
+    modelConfig: {
+      ctx_size: 2_048,
+    },
   },
   "qwen-1.7b": {
     key: "qwen-1.7b",
@@ -22,7 +26,11 @@ const models = {
     label: "Qwen 3 1.7B (Q4)",
     tier: 3,
     priceCredits: ledgerConfig.getPriceForTier(3),
-    contextTokens: 1800,
+    contextTokens: 3_000,
+    maxOutputTokens: 1_024,
+    modelConfig: {
+      ctx_size: 4_096,
+    },
   },
 };
 

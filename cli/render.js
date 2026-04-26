@@ -53,10 +53,8 @@ export function renderUsage({ commands }) {
   lines.push("  pear run . serve");
   lines.push("  pear run . peers");
   lines.push("  pear run . balance");
-  lines.push('  pear run . ask --max-credits 20 "Explain vector databases"');
-  lines.push(
-    '  pear run . ask --peer <peer-id> --max-credits 20 "Explain vector databases"',
-  );
+  lines.push('  pear run . ask "Explain vector databases"');
+  lines.push('  pear run . ask --model qwen-1.7b "Explain vector databases"');
   lines.push("  pear run . rate 5");
   lines.push("  pear run . rate <ledger-account-id> 5");
   lines.push("  pear run . ratings");
@@ -471,13 +469,6 @@ function formatProviderModel(model) {
 }
 
 export function renderAskPlan({ prompt, options }) {
-  const selection = options.peer
-    ? `manual peer ${options.peer}`
-    : `${options.strategy} eligible peer`;
-  const budget = options.maxCredits == null
-    ? "none"
-    : `${options.maxCredits} credits`;
-
   return renderCommandResult({
     title: "Ask",
     status: prompt ? "pending" : "blocked",
@@ -485,19 +476,15 @@ export function renderAskPlan({ prompt, options }) {
       ? `Prompt captured: "${prompt}"`
       : "Missing prompt. Pass text after `ask`.",
     bullets: [
-      `Selection: ${selection}`,
-      `Budget limit: ${budget}`,
       `Model filter: ${options.model ?? "any advertised model"}`,
-      "Find a provider matching the selection and budget.",
-      "Delegate the prompt through QVAC.",
+      "Send the prompt to the local daemon chat API.",
+      "Let the daemon select a provider and settle credits.",
       "Stream the model response to the terminal.",
-      "Write a signed credit receipt after completion.",
     ],
     next: [
-      "Use discovery peer data to filter by `--peer`, `--model`, and `--max-credits`.",
-      "Estimate final cost before dispatching the request.",
-      "Wire inference to `loadDelegatedModel` and `runCompletion`.",
-      "Persist credit receipt through Autobase.",
+      "Start the daemon with `pear run . daemon`.",
+      "Start a provider with `pear run . serve`.",
+      "Run `pear run . ask \"your prompt\"`.",
     ],
   });
 }

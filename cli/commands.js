@@ -16,7 +16,6 @@ import {
 
 const DEFAULT_PEER_SCAN_MS = 3_000;
 const DEFAULT_API_URL = "http://127.0.0.1:11434";
-const ASK_STRATEGIES = new Set(["cheapest", "best", "fastest", "rated"]);
 
 const commandDefinitions = [
   {
@@ -257,42 +256,20 @@ const commandDefinitions = [
   },
   {
     name: "ask",
-    usage: "ask [options] <prompt>",
+    usage: "ask [--model key] [--api-url url] <prompt>",
     description: "Send a prompt to a discovered provider.",
     async run(args) {
       const { options, prompt } = parseAskArgs(args);
       if (!prompt) return renderAskPlan({ prompt, options });
 
-      await import("../qvac/worker.entry.mjs");
       const { default: process } = await import("bare-process");
       const { config, getModel } = await import("../src/config.js");
-      const {
-        loadDelegatedModel,
-        runCompletion,
-        unload,
-        shutdown,
-      } = await import("../src/core/qvac.js");
 
       const stdout = process.stdout;
       const model = getModel(options.model ?? config.defaultModelKey);
-      const peersPayload = await requestJson({ apiUrl: options.apiUrl, path: "/api/peers" });
-      const provider = selectProvider({
-        peers: peersPayload.peers ?? [],
-        model,
-        options,
-      });
-
-      if (!provider) {
-        return renderAskResult({
-          prompt,
-          model: model.key,
-          error: `No providers found for model "${model.key}".`,
-        });
-      }
-
       let content = "";
       let streamedHeader = false;
-      let modelId = null;
+      let provider = null;
 
       const streamHeader = () => {
         if (streamedHeader) return;
@@ -301,30 +278,36 @@ const commandDefinitions = [
       };
 
       try {
-        modelId = await loadDelegatedModel({
-          modelSrc: model.src,
-          topic: provider.qvacTopic,
-          providerPublicKey: provider.qvacProviderPublicKey,
-          timeoutMs: config.requestTimeoutMs,
-        });
-
-        const response = runCompletion({
-          modelId,
-          history: [{ role: "user", content: prompt }],
-          stream: true,
-        });
-
         streamHeader();
-        for await (const token of response.tokenStream) {
-          content += token;
-          stdout.write(token);
+
+        const response = await requestJsonLinesStream({
+          apiUrl: options.apiUrl,
+          method: "POST",
+          path: "/api/chat",
+          body: {
+            model: model.key,
+            stream: true,
+            messages: [{ role: "user", content: prompt }],
+          },
+          onLine(line) {
+            if (line.error) throw new Error(line.error);
+            if (line.provider) provider = providerInfo(line.provider);
+            const token = line.message?.content ?? line.response ?? "";
+            if (!line.done && token) {
+              content += token;
+              stdout.write(token);
+            }
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(response.error);
         }
-        if (response.stats?.catch) await response.stats.catch(() => null);
 
         if (!content) stdout.write("(empty response)");
         const details = renderAskDetails({
           prompt,
-          provider: providerInfo(provider),
+          provider,
         });
         if (details) stdout.write(`\n${details}`);
         stdout.write("\n");
@@ -334,19 +317,22 @@ const commandDefinitions = [
           streamed: true,
         };
       } catch (err) {
+        if (streamedHeader && content) {
+          stdout.write(`\n${c("red", "Error")} ${err?.message ?? String(err)}\n`);
+          return {
+            output: "",
+            streamed: true,
+            exitCode: 1,
+          };
+        }
         if (streamedHeader) stdout.write("\n");
         return renderAskResult({
           prompt,
           model: model.key,
           content,
-          provider: providerInfo(provider),
+          provider,
           error: err?.message ?? String(err),
         });
-      } finally {
-        if (modelId) {
-          await unload({ modelId }).catch(() => {});
-        }
-        await shutdown().catch(() => {});
       }
     },
   },
@@ -485,34 +471,15 @@ function parsePeersArgs(args) {
 
 function parseAskArgs(args) {
   const options = {
-    peer: null,
     model: null,
-    maxCredits: null,
-    strategy: "cheapest",
     apiUrl: DEFAULT_API_URL,
   };
   const rest = [];
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (arg === "--peer") {
-      options.peer = readOptionValue(args, ++i, "--peer");
-    } else if (arg === "--model") {
+    if (arg === "--model") {
       options.model = readOptionValue(args, ++i, "--model");
-    } else if (arg === "--max-credits") {
-      const value = Number(readOptionValue(args, ++i, "--max-credits"));
-      if (!Number.isFinite(value) || value < 0) {
-        throw new Error("`ask --max-credits` expects a non-negative number");
-      }
-      options.maxCredits = value;
-    } else if (arg === "--strategy") {
-      const value = readOptionValue(args, ++i, "--strategy");
-      if (!ASK_STRATEGIES.has(value)) {
-        throw new Error(
-          "`ask --strategy` expects cheapest, best, fastest, or rated",
-        );
-      }
-      options.strategy = value;
     } else if (arg === "--api-url") {
       options.apiUrl = readOptionValue(args, ++i, "--api-url");
     } else if (arg.startsWith("--")) {
@@ -635,25 +602,6 @@ async function requestJson({
     throw new Error(payload.error ?? `HTTP ${response.statusCode} from ${path}`);
   }
   return payload;
-}
-
-async function requestJsonLines({ apiUrl = DEFAULT_API_URL, method = "GET", path, body }) {
-  const response = await requestText({ apiUrl, method, path, body });
-  const text = response.text.trim();
-  const lines = text
-    ? text.split(/\r?\n/).filter(Boolean).map((line) => parseJson(line, path))
-    : [];
-
-  if (response.statusCode >= 400) {
-    const last = lines.at(-1);
-    return {
-      ok: false,
-      lines,
-      error: last?.error ?? `HTTP ${response.statusCode} from ${path}`,
-    };
-  }
-
-  return { ok: true, lines };
 }
 
 async function requestJsonLinesStream({
@@ -807,36 +755,8 @@ function parseJson(text, path) {
   }
 }
 
-function selectProvider({ peers, model, options }) {
-  const eligible = peers.filter((peer) => {
-    if (!peer.qvacProviderPublicKey || !peer.qvacTopic) return false;
-    if (options.peer && !matchesPeer(peer, options.peer)) return false;
-    return peer.models?.some((m) => m.key === model.key || m.id === model.id);
-  });
-
-  if (eligible.length === 0) return null;
-
-  if (options.strategy === "rated") {
-    return [...eligible].sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0))[0];
-  }
-
-  if (options.strategy === "fastest") {
-    return [...eligible].sort((a, b) => (b.lastSeenAt ?? 0) - (a.lastSeenAt ?? 0))[0];
-  }
-
-  return eligible[0];
-}
-
-function matchesPeer(peer, requestedPeer) {
-  return [
-    peer.peerId,
-    peer.ledgerAccountId,
-    peer.qvacProviderPublicKey,
-    peer.peerName,
-  ].some((value) => value && value.startsWith(requestedPeer));
-}
-
 function providerInfo(provider) {
+  if (!provider) return null;
   return {
     peerName: provider.peerName ?? null,
     peerId: provider.peerId ?? null,
